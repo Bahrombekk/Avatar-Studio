@@ -1,0 +1,9 @@
+# Backend (FastAPI ilova qatlami) bog'liqliklari.
+# OGOHLANTIRISH: og'ir ML bog'liqliklari (torch, diffusers, transformers,
+# opencv, librosa, ...) `musetalk` conda env'idan keladi — ../models/MuseTalk/requirements.txt
+# ga qarang. Bu fayl faqat server qatlami uchun.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.0
+openai>=1.0
+edge-tts>=6.1

@@ -1,0 +1,44 @@
+# ── Maxfiy kalitlar ──
+.env
+backend/.env
+**/.env
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── Node / Vite ──
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.log
+npm-debug.log*
+
+# ── Runtime / generatsiya (per-avatar/voice) ──
+/tmp/lp_avatar_temp/
+/tmp/lp_avatar_videos/
+backend/data/avatars/*/events.jsonl
+backend/data/avatars/*/voices/*/cache.json
+backend/data/avatars/*/voices/*/videos/
+# Eski tuzilma qoldiqlari (migratsiyadan keyin .bak)
+backend/data/*.bak
+backend/checkpoints/cache_index.json*
+backend/static/videos/
+
+# ── Eski monolit (backend/+frontend/ bilan almashtirilgan, repoga kerak emas) ──
+/app/
+
+# ── AI modellar (juda katta, alohida yuklanadi ~11 GB) ──
+models/MuseTalk/models/
+models/MuseTalk/results/
+models/LivePortrait/pretrained_weights/
+
+# ── OS / IDE ──
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,32 @@
+{
+  "id": "madina_lp",
+  "name": "Madina",
+  "role": "Virtual yordamchi",
+  "brand": "O‘zbekiston Temir Yo‘llari",
+  "brandShort": "UTY",
+  "status": "live",
+  "accent": "#B98944",
+  "portrait": {
+    "from": "#1C3A5E",
+    "to": "#0F2540",
+    "initials": "M"
+  },
+  "voice": "madina",
+  "language": "uz",
+  "extraMargin": 16,
+  "fps": 25,
+  "blinkRate": 4,
+  "headMotion": 0.45,
+  "persona": "",
+  "respLen": "short",
+  "temperature": 0.4,
+  "speechRate": 0,
+  "hasPhoto": true,
+  "real": true,
+  "suggestions": [
+    "Chipta narxi qancha?",
+    "Toshkent–Samarqand poyezdi",
+    "Bagaj qoidalari"
+  ],
+  "updated": "Hozir"
+}

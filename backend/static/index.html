@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Madina — O'zbekiston Temir Yo'llari</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,wght@0,400;0,500;1,400;1,500&display=swap">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; overflow: hidden;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    background: #FAF7F0;
+    color: #1A1410;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .cn-root {
+    width: 100%; height: 100vh;
+    display: grid;
+    grid-template-columns: 460px 1fr;
+    overflow: hidden;
+  }
+
+  /* ── LEFT: portrait column ─────────────────────── */
+  .cn-left {
+    position: relative;
+    padding: 28px 24px 24px;
+    display: flex; flex-direction: column;
+    gap: 18px;
+    border-right: 1px solid rgba(15,37,64,.08);
+    background: linear-gradient(180deg, #F4EFE3 0%, #FAF7F0 100%);
+    overflow-y: auto;
+  }
+  .cn-brand { display: flex; align-items: center; gap: 10px; }
+  .cn-brand-mark {
+    width: 30px; height: 30px; border-radius: 6px;
+    background: #0F2540;
+    display: flex; align-items: center; justify-content: center;
+    color: #F4EFE3; font-family: "Newsreader", serif;
+    font-size: 16px; font-style: italic; font-weight: 500;
+    letter-spacing: -.5px;
+  }
+  .cn-brand-meta { display: flex; flex-direction: column; line-height: 1.1; }
+  .cn-brand-name {
+    font-family: "Newsreader", serif;
+    font-size: 18px; font-weight: 500; color: #0F2540;
+    letter-spacing: -.2px;
+  }
+  .cn-brand-sub {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; color: #6B5E4D;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-top: 2px;
+  }
+
+  .cn-portrait {
+    position: relative;
+    aspect-ratio: 3/4;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #0F2540;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.6) inset,
+      0 24px 48px -16px rgba(15,37,64,.35),
+      0 0 0 1px rgba(15,37,64,.06);
+  }
+  .cn-portrait img, .cn-portrait video {
+    width: 100%; height: 100%; object-fit: cover;
+    display: block;
+    transition: opacity .35s, filter .4s, transform 6s ease;
+  }
+  .cn-portrait #avVideo { position: absolute; inset: 0; opacity: 0; }
+  .cn-portrait #avVideo.visible { opacity: 1; }
+  .cn-portrait.speaking img,
+  .cn-portrait.speaking video {
+    filter: contrast(1.05) saturate(1.05);
+  }
+  .cn-frame {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    border: 1px solid rgba(244,239,227,.4);
+    margin: 10px;
+    border-radius: 2px;
+    z-index: 3;
+  }
+  .cn-portrait-overlay {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 16px 18px;
+    background: linear-gradient(180deg, transparent 0%, rgba(15,37,64,.85) 100%);
+    display: flex; align-items: flex-end; justify-content: space-between;
+    color: #F4EFE3;
+    z-index: 4;
+  }
+  .cn-portrait-name {
+    font-family: "Newsreader", serif;
+    font-size: 28px; font-weight: 400;
+    letter-spacing: -.5px; line-height: 1;
+  }
+  .cn-portrait-role {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; opacity: .75;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin-top: 6px;
+  }
+  .cn-state-pill {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px;
+    padding: 5px 9px;
+    background: rgba(244,239,227,.12);
+    border: 1px solid rgba(244,239,227,.25);
+    border-radius: 20px;
+    display: flex; align-items: center; gap: 6px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .cn-state-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #8FB58A;
+  }
+  .cn-state-dot.busy  { background: #D7A85B; animation: cnBlink 1s ease-in-out infinite; }
+  .cn-state-dot.speak { background: #B98944; }
+  .cn-state-dot.error { background: #C0392B; }
+  @keyframes cnBlink { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* Loading overlay inside portrait */
+  .cn-load {
+    position: absolute; inset: 0;
+    background: rgba(15,37,64,.78);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: none;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 14px;
+    color: #F4EFE3;
+    z-index: 5;
+  }
+  .cn-load.show { display: flex; }
+  .cn-spin-wrap {
+    width: 56px; height: 56px;
+    position: relative;
+  }
+  .cn-spin {
+    width: 100%; height: 100%;
+    border: 2px solid rgba(244,239,227,.2);
+    border-top-color: #B98944;
+    border-right-color: #B98944;
+    border-radius: 50%;
+    animation: cnSpin .9s linear infinite;
+  }
+  @keyframes cnSpin { to { transform: rotate(360deg); } }
+  .cn-timer {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px; color: #F4EFE3;
+    font-variant-numeric: tabular-nums;
+  }
+  .cn-load-txt {
+    font-family: "Newsreader", serif;
+    font-size: 16px; font-style: italic;
+  }
+  .cn-load-steps {
+    display: flex; gap: 6px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 8.5px; text-transform: uppercase; letter-spacing: 1.4px;
+  }
+  .cn-load-step {
+    padding: 3px 8px;
+    border: 1px solid rgba(244,239,227,.25);
+    border-radius: 18px;
+    color: rgba(244,239,227,.55);
+  }
+  .cn-load-step.active {
+    border-color: #B98944;
+    color: #F4EFE3;
+    background: rgba(185,137,68,.2);
+  }
+  .cn-load-step.done {
+    border-color: rgba(143,181,138,.5);
+    color: #B5DABF;
+  }
+
+  /* Portrait equalizer when speaking */
+  .cn-portrait-equalizer {
+    position: absolute; bottom: 16px; right: 18px;
+    display: none; align-items: flex-end; gap: 2px; height: 14px;
+    z-index: 5;
+  }
+  .cn-portrait.speaking .cn-portrait-equalizer { display: flex; }
+  .cn-portrait-equalizer span {
+    width: 2px; background: #F4EFE3;
+    border-radius: 1px;
+    animation: cnEq 1s ease-in-out infinite;
+  }
+  .cn-portrait-equalizer span:nth-child(1) { height: 30%;  animation-delay: 0s; }
+  .cn-portrait-equalizer span:nth-child(2) { height: 80%;  animation-delay: .12s; }
+  .cn-portrait-equalizer span:nth-child(3) { height: 50%;  animation-delay: .24s; }
+  .cn-portrait-equalizer span:nth-child(4) { height: 100%; animation-delay: .36s; }
+  .cn-portrait-equalizer span:nth-child(5) { height: 65%;  animation-delay: .48s; }
+  @keyframes cnEq { 0%,100% { transform: scaleY(.4); } 50% { transform: scaleY(1); } }
+
+  /* Card meta */
+  .cn-card-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-top: 1px solid rgba(15,37,64,.1);
+    padding-top: 14px;
+  }
+  .cn-meta-cell {
+    padding: 4px 0;
+    border-right: 1px solid rgba(15,37,64,.08);
+    padding-right: 14px;
+  }
+  .cn-meta-cell + .cn-meta-cell { border-right: none; padding-left: 14px; padding-right: 0; }
+  .cn-meta-key {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; color: #6B5E4D;
+    text-transform: uppercase; letter-spacing: 1.4px;
+  }
+  .cn-meta-val {
+    font-family: "Newsreader", serif;
+    font-size: 17px; color: #0F2540;
+    margin-top: 4px;
+    font-feature-settings: "lnum";
+    letter-spacing: -.2px;
+  }
+  .cn-meta-val small {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px; color: #6B5E4D; margin-left: 3px; font-weight: 400;
+  }
+
+  /* Timing card */
+  .cn-timing {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: rgba(15,37,64,.08);
+    border-radius: 3px;
+    overflow: hidden;
+    opacity: 0; transition: opacity .3s;
+  }
+  .cn-timing.show { opacity: 1; }
+  .cn-timing-cell {
+    background: #FAF7F0;
+    padding: 8px 6px;
+    text-align: center;
+  }
+  .cn-timing-key {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 8px; color: #6B5E4D;
+    text-transform: uppercase; letter-spacing: 1.2px;
+  }
+  .cn-timing-val {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 14px; color: #0F2540;
+    font-weight: 500; margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── RIGHT: chat ───────────────────────────────── */
+  .cn-right {
+    display: flex; flex-direction: column;
+    min-height: 0; min-width: 0;
+    background: #FAF7F0;
+  }
+  .cn-topbar {
+    padding: 18px 32px 14px;
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 1px solid rgba(15,37,64,.08);
+    flex-shrink: 0;
+  }
+  .cn-topbar h2 {
+    font-family: "Newsreader", serif;
+    font-size: 26px; font-weight: 400; color: #0F2540;
+    letter-spacing: -.6px;
+  }
+  .cn-topbar h2 em { font-style: italic; color: #B98944; }
+  .cn-topbar-mono {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px; color: #6B5E4D;
+    text-transform: uppercase; letter-spacing: 1.6px;
+  }
+  .cn-topbar-right { display: flex; align-items: center; gap: 14px; }
+  .cn-voice {
+    display: flex; align-items: center; gap: 7px;
+  }
+  .cn-voice label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; color: #6B5E4D;
+    text-transform: uppercase; letter-spacing: 1.4px;
+  }
+  .cn-voice select {
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 12.5px; color: #0F2540;
+    background: #FAF7F0;
+    border: 1px solid rgba(15,37,64,.15);
+    border-radius: 3px;
+    padding: 6px 10px;
+    cursor: pointer;
+    outline: 0;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .cn-voice select:focus { border-color: #B98944; box-shadow: 0 0 0 3px rgba(185,137,68,.12); }
+
+  /* Thread / messages */
+  .cn-thread {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px 12px;
+    display: flex; flex-direction: column; gap: 22px;
+  }
+  .cn-thread::-webkit-scrollbar { width: 5px; }
+  .cn-thread::-webkit-scrollbar-track { background: transparent; }
+  .cn-thread::-webkit-scrollbar-thumb { background: rgba(15,37,64,.15); border-radius: 4px; }
+
+  .cn-turn {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 18px;
+    align-items: start;
+    animation: cnTurnIn .25s ease;
+  }
+  @keyframes cnTurnIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .cn-turn-meta {
+    text-align: right;
+    display: flex; flex-direction: column;
+    gap: 4px; padding-top: 2px;
+  }
+  .cn-turn-sender {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px;
+    text-transform: uppercase; letter-spacing: 1.6px;
+    color: #6B5E4D;
+  }
+  .cn-turn.user .cn-turn-sender { color: #B98944; }
+  .cn-turn-time {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px; color: #9C8D78;
+    font-variant-numeric: tabular-nums;
+  }
+  .cn-turn-body {
+    font-family: "Newsreader", serif;
+    font-size: 17px; line-height: 1.55;
+    color: #1A1410;
+    text-wrap: pretty;
+    letter-spacing: -.1px;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+  }
+  .cn-turn.user .cn-turn-body {
+    color: #0F2540;
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 15px; font-weight: 500;
+    padding-left: 14px;
+    border-left: 2px solid #B98944;
+  }
+  .cn-turn-body.error {
+    color: #8B2A1F;
+    border-left: 2px solid #C0392B;
+    padding-left: 14px;
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 14px;
+  }
+
+  /* Typing dots */
+  .cn-typing {
+    display: flex; align-items: center; gap: 5px;
+    padding-top: 4px;
+  }
+  .cn-typing span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #B98944;
+    animation: cnDot 1.2s ease-in-out infinite;
+  }
+  .cn-typing span:nth-child(2) { animation-delay: .15s; }
+  .cn-typing span:nth-child(3) { animation-delay: .3s; }
+  @keyframes cnDot {
+    0%, 80%, 100% { transform: translateY(0); opacity: .4; }
+    40%            { transform: translateY(-4px); opacity: 1; }
+  }
+
+  /* Suggestions */
+  .cn-sugs {
+    padding: 6px 32px 14px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    border-top: 1px solid rgba(15,37,64,.08);
+    flex-shrink: 0;
+    transition: max-height .3s, opacity .25s, padding .25s;
+    overflow: hidden;
+    max-height: 200px;
+  }
+  .cn-sugs.hide {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top: 0;
+  }
+  .cn-sug {
+    background: transparent;
+    border: 1px solid rgba(15,37,64,.15);
+    border-radius: 3px;
+    padding: 10px 12px;
+    text-align: left;
+    cursor: pointer;
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 12.5px; color: #0F2540;
+    display: flex; align-items: center; gap: 9px;
+    transition: background .15s, border-color .15s, transform .1s;
+    line-height: 1.3;
+  }
+  .cn-sug:hover {
+    background: #F4EFE3;
+    border-color: #B98944;
+  }
+  .cn-sug:active { transform: translateY(1px); }
+  .cn-sug-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; color: #B98944;
+    text-transform: uppercase; letter-spacing: 1px;
+    width: 18px; flex-shrink: 0;
+  }
+
+  /* Input */
+  .cn-input-wrap {
+    padding: 14px 32px 22px;
+    border-top: 1px solid rgba(15,37,64,.08);
+    background: #F4EFE3;
+    flex-shrink: 0;
+  }
+  .cn-input {
+    display: flex; align-items: center; gap: 12px;
+    background: #FAF7F0;
+    border: 1px solid rgba(15,37,64,.15);
+    border-radius: 3px;
+    padding: 4px 4px 4px 16px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .cn-input:focus-within {
+    border-color: #B98944;
+    box-shadow: 0 0 0 3px rgba(185,137,68,.12);
+  }
+  .cn-input input, .cn-input textarea {
+    flex: 1;
+    border: 0; outline: 0; background: transparent;
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 14px; color: #1A1410;
+    padding: 12px 0;
+    letter-spacing: -.1px;
+    resize: none;
+    max-height: 100px;
+    line-height: 1.4;
+  }
+  .cn-input input::placeholder, .cn-input textarea::placeholder {
+    color: #9C8D78; font-style: italic;
+  }
+  .cn-send {
+    background: #0F2540;
+    color: #F4EFE3;
+    border: 0; cursor: pointer;
+    padding: 11px 18px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    border-radius: 2px;
+    display: flex; align-items: center; gap: 8px;
+    transition: background .15s;
+  }
+  .cn-send:hover:not(:disabled) { background: #B98944; }
+  .cn-send:disabled { opacity: .35; cursor: not-allowed; }
+  .cn-send svg { width: 12px; height: 12px; fill: currentColor; }
+  .cn-input-hint {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px; color: #6B5E4D;
+    text-transform: uppercase; letter-spacing: 1.4px;
+    margin-top: 10px;
+    display: flex; justify-content: space-between;
+  }
+  .cn-input-hint kbd {
+    background: rgba(15,37,64,.06);
+    border: 1px solid rgba(15,37,64,.1);
+    padding: 1px 5px; border-radius: 2px;
+    font-family: inherit; font-size: 8.5px;
+  }
+
+  /* Toast */
+  .cn-toast {
+    position: fixed; bottom: 22px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: #0F2540;
+    color: #F4EFE3;
+    padding: 11px 18px;
+    border-radius: 3px;
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 13px;
+    z-index: 999;
+    transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+    display: flex; align-items: center; gap: 9px;
+    box-shadow: 0 12px 32px rgba(15,37,64,.35);
+    border: 1px solid rgba(244,239,227,.15);
+    max-width: 460px;
+  }
+  .cn-toast.show { transform: translateX(-50%) translateY(0); }
+  .cn-toast.error { background: #8B2A1F; }
+
+  /* ── RESPONSIVE ────────────────────────────────── */
+  @media (max-width: 900px) {
+    .cn-root { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .cn-left {
+      padding: 16px 16px 12px;
+      border-right: 0;
+      border-bottom: 1px solid rgba(15,37,64,.08);
+    }
+    .cn-portrait { aspect-ratio: 16/9; max-height: 280px; }
+    .cn-card-meta, .cn-timing { display: none; }
+    .cn-thread { padding: 18px 20px 8px; }
+    .cn-turn { grid-template-columns: 60px 1fr; gap: 12px; }
+    .cn-turn-body { font-size: 16px; }
+    .cn-sugs { padding: 6px 20px 12px; grid-template-columns: 1fr; }
+    .cn-input-wrap { padding: 12px 20px 18px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cn-root">
+
+  <!-- ═══════════ LEFT: portrait column ═══════════ -->
+  <aside class="cn-left">
+
+    <div class="cn-brand">
+      <div class="cn-brand-mark">M</div>
+      <div class="cn-brand-meta">
+        <div class="cn-brand-name">Madina</div>
+        <div class="cn-brand-sub">Concierge · UTY</div>
+      </div>
+    </div>
+
+    <div class="cn-portrait" id="videoCard">
+      <img id="idleImg" src="/idle.jpg" alt="Madina" draggable="false">
+      <video id="avVideo" playsinline preload="auto"></video>
+
+      <div class="cn-frame"></div>
+
+      <div class="cn-portrait-equalizer">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+
+      <div id="loadOverlay" class="cn-load">
+        <div class="cn-spin-wrap">
+          <div class="cn-spin"></div>
+          <div class="cn-timer" id="loadTimer">0s</div>
+        </div>
+        <div class="cn-load-txt" id="loadTxt">tayyorlanmoqda</div>
+        <div class="cn-load-steps">
+          <div class="cn-load-step" id="s1">GPT</div>
+          <div class="cn-load-step" id="s2">Ovoz</div>
+          <div class="cn-load-step" id="s3">Video</div>
+        </div>
+      </div>
+
+      <div class="cn-portrait-overlay">
+        <div>
+          <div class="cn-portrait-name">Madina</div>
+          <div class="cn-portrait-role">Virtual yordamchi</div>
+        </div>
+        <div class="cn-state-pill">
+          <div class="cn-state-dot" id="stateDot"></div>
+          <span id="stateTxt">Tayyor</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="cn-card-meta">
+      <div class="cn-meta-cell">
+        <div class="cn-meta-key">Yo'nalish</div>
+        <div class="cn-meta-val">O'zbekiston <small>Temir Yo'llari</small></div>
+      </div>
+      <div class="cn-meta-cell">
+        <div class="cn-meta-key">Til</div>
+        <div class="cn-meta-val">O'zbek <small>UZ</small></div>
+      </div>
+    </div>
+
+    <div class="cn-timing" id="timingCard">
+      <div class="cn-timing-cell"><div class="cn-timing-key">GPT</div>  <div class="cn-timing-val" id="tGpt">—</div></div>
+      <div class="cn-timing-cell"><div class="cn-timing-key">Ovoz</div> <div class="cn-timing-val" id="tTts">—</div></div>
+      <div class="cn-timing-cell"><div class="cn-timing-key">Video</div><div class="cn-timing-val" id="tLip">—</div></div>
+      <div class="cn-timing-cell"><div class="cn-timing-key">Jami</div> <div class="cn-timing-val" id="tTot">—</div></div>
+    </div>
+
+  </aside>
+
+  <!-- ═══════════ RIGHT: conversation ═══════════ -->
+  <main class="cn-right">
+
+    <div class="cn-topbar">
+      <h2>Bugungi <em>suhbat</em></h2>
+      <div class="cn-topbar-right">
+        <div class="cn-voice">
+          <label for="voiceSel">Ovoz</label>
+          <select id="voiceSel"></select>
+        </div>
+        <span class="cn-topbar-mono" id="topbarMono">Sessiya · UZ-UZ</span>
+      </div>
+    </div>
+
+    <div class="cn-thread" id="msgs">
+      <div class="cn-turn bot">
+        <div class="cn-turn-meta">
+          <div class="cn-turn-sender">Madina</div>
+          <div class="cn-turn-time" id="firstTime">—</div>
+        </div>
+        <div class="cn-turn-body">
+          Assalomu alaykum. Men <em>Madina</em> — O'zbekiston Temir Yo'llari virtual yordamchisi.
+          Poyezdlar, chiptalar yoki sayohat haqida savolingiz bormi?
+        </div>
+      </div>
+    </div>
+
+    <div class="cn-sugs" id="sugs">
+      <button class="cn-sug" data-text="Chipta narxi qancha?">
+        <span class="cn-sug-num">01</span>Chipta narxi qancha?
+      </button>
+      <button class="cn-sug" data-text="Toshkent–Samarqand poyezdi haqida ayting">
+        <span class="cn-sug-num">02</span>Toshkent–Samarqand
+      </button>
+      <button class="cn-sug" data-text="Bagaj qoidalari qanday?">
+        <span class="cn-sug-num">03</span>Bagaj qoidalari
+      </button>
+    </div>
+
+    <div class="cn-input-wrap">
+      <div class="cn-input">
+        <textarea id="inp" rows="1" placeholder="Savolingizni yozing…" maxlength="500"></textarea>
+        <button id="sendBtn" class="cn-send">
+          Yuborish
+          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div class="cn-input-hint">
+        <span><kbd>Enter</kbd> yuborish · <kbd>Shift</kbd>+<kbd>Enter</kbd> yangi qator</span>
+        <span id="charCount">0 / 500</span>
+      </div>
+    </div>
+
+  </main>
+
+</div>
+
+<div class="cn-toast" id="toast">
+  <span id="toastMsg">Xato</span>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+
+// ── State ─────────────────────────────────────────────
+const state = {
+  busy: false,
+  lastSentText: '',
+  lastSentAt: 0,
+  loadStartTs: 0,
+  loadTimerId: null,
+  pollHealthId: null,
+  modelReady: false,
+  voice: 'madina',
+};
+
+const vid       = $('avVideo');
+const idleImg   = $('idleImg');
+const videoCard = $('videoCard');
+const inpEl     = $('inp');
+
+// First message time
+$('firstTime').textContent = nowTime();
+
+// ── Idle image init ───────────────────────────────────
+idleImg.addEventListener('error', () => {
+  // Idle yo'q bo'lsa, fon to'q ko'k qoladi
+  console.warn('idle.jpg yo\'q');
+});
+
+// ── Status helpers ────────────────────────────────────
+function setState(txt, type) {
+  $('stateTxt').textContent = txt;
+  $('stateDot').className = 'cn-state-dot ' + (type || '');
+}
+
+// ── Overlay & steps ───────────────────────────────────
+function showOverlay(txt) {
+  $('loadTxt').textContent = txt || 'tayyorlanmoqda';
+  $('loadOverlay').classList.add('show');
+  state.loadStartTs = Date.now();
+  $('loadTimer').textContent = '0s';
+  if (state.loadTimerId) clearInterval(state.loadTimerId);
+  state.loadTimerId = setInterval(() => {
+    const s = Math.floor((Date.now() - state.loadStartTs) / 1000);
+    $('loadTimer').textContent = s + 's';
+  }, 250);
+}
+function hideOverlay() {
+  $('loadOverlay').classList.remove('show');
+  if (state.loadTimerId) { clearInterval(state.loadTimerId); state.loadTimerId = null; }
+  ['s1', 's2', 's3'].forEach(id => $(id).className = 'cn-load-step');
+}
+function stepActive(id) {
+  ['s1', 's2', 's3'].forEach(x => {
+    const el = $(x);
+    if (x === id) el.className = 'cn-load-step active';
+    else if (el.classList.contains('active')) el.className = 'cn-load-step done';
+  });
+}
+
+// ── Messages ──────────────────────────────────────────
+function nowTime() {
+  const d = new Date();
+  return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+}
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+function addMsg(text, role) {
+  const wrap = $('msgs');
+  const d    = document.createElement('div');
+  d.className = 'cn-turn ' + role;
+  const sender = role === 'user' ? 'Mehmon' : 'Madina';
+  d.innerHTML = `
+    <div class="cn-turn-meta">
+      <div class="cn-turn-sender">${sender}</div>
+      <div class="cn-turn-time">${nowTime()}</div>
+    </div>
+    <div class="cn-turn-body">${esc(text)}</div>`;
+  wrap.appendChild(d);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+function addBotError(detail) {
+  const wrap = $('msgs');
+  const d = document.createElement('div');
+  d.className = 'cn-turn bot';
+  d.innerHTML = `
+    <div class="cn-turn-meta">
+      <div class="cn-turn-sender">Madina</div>
+      <div class="cn-turn-time">${nowTime()}</div>
+    </div>
+    <div class="cn-turn-body error">Uzr, javob bera olmadim. <small>${esc(detail)}</small></div>`;
+  wrap.appendChild(d);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+function addTyping() {
+  rmTyping();
+  const wrap = $('msgs');
+  const d    = document.createElement('div');
+  d.id = 'typing';
+  d.className = 'cn-turn bot';
+  d.innerHTML = `
+    <div class="cn-turn-meta">
+      <div class="cn-turn-sender">Madina</div>
+      <div class="cn-turn-time">${nowTime()}</div>
+    </div>
+    <div class="cn-turn-body"><div class="cn-typing"><span></span><span></span><span></span></div></div>`;
+  wrap.appendChild(d);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+function rmTyping() {
+  const t = $('typing'); if (t) t.remove();
+}
+
+// ── Timing ────────────────────────────────────────────
+function showTiming(t) {
+  $('tGpt').textContent = (t.gpt    ?? 0) + 's';
+  $('tTts').textContent = (t.tts    ?? 0) + 's';
+  $('tLip').textContent = (t.wav2lip ?? 0) + 's';
+  $('tTot').textContent = (t.total  ?? 0) + 's';
+  $('timingCard').classList.add('show');
+}
+
+// ── Toast ─────────────────────────────────────────────
+function toast(msg, type, duration) {
+  const t = $('toast');
+  $('toastMsg').textContent = msg;
+  t.classList.toggle('error', type === 'error');
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), duration || 5000);
+}
+
+// ── Suggestions ───────────────────────────────────────
+document.querySelectorAll('.cn-sug').forEach(btn => {
+  btn.addEventListener('click', () => {
+    inpEl.value = btn.dataset.text || '';
+    autoResize();
+    inpEl.focus();
+  });
+});
+function hideSuggestions() { $('sugs').classList.add('hide'); }
+
+// ── Video playback ────────────────────────────────────
+function playVideo(url) {
+  vid.classList.add('visible');
+  vid.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+  vid.muted = false;
+  vid.loop = false;
+
+  videoCard.classList.add('speaking');
+  setState('Gapirmoqda', 'speak');
+
+  vid.play().catch(() => {
+    vid.muted = true;
+    vid.play().catch(() => {});
+    toast('Ovoz uchun video ustiga bosing', 'info', 4000);
+  });
+}
+function returnToIdle() {
+  vid.classList.remove('visible');
+  videoCard.classList.remove('speaking');
+  setState('Tayyor', '');
+  try { vid.pause(); } catch(_) {}
+  setTimeout(() => {
+    if (!vid.classList.contains('visible')) {
+      vid.removeAttribute('src'); vid.load();
+    }
+  }, 400);
+}
+vid.addEventListener('ended', returnToIdle);
+vid.addEventListener('error', () => {
+  if (vid.getAttribute('src')) { toast('Video yuklab bo\'lmadi', 'error'); returnToIdle(); }
+});
+vid.addEventListener('click', () => {
+  if (vid.muted && vid.src) {
+    vid.muted = false; vid.currentTime = 0; vid.play().catch(() => {});
+  }
+});
+
+// ── Send ──────────────────────────────────────────────
+async function send() {
+  const text = inpEl.value.trim();
+  if (!text) return;
+
+  if (state.busy) { toast('Iltimos, javobni kuting…'); return; }
+  if (!state.modelReady) { toast('Model hali yuklanmoqda…'); return; }
+  if (text === state.lastSentText && (Date.now() - state.lastSentAt) < 1500) return;
+
+  state.lastSentText = text;
+  state.lastSentAt   = Date.now();
+  state.busy = true;
+  $('sendBtn').disabled = true;
+  inpEl.disabled = true;
+  hideSuggestions();
+
+  addMsg(text, 'user');
+  inpEl.value = ''; autoResize(); updateCharCount();
+  addTyping();
+
+  setState('Javob tayyorlanmoqda', 'busy');
+  showOverlay('GPT javob yozmoqda');
+  stepActive('s1');
+
+  const controller = new AbortController();
+  const timeout    = setTimeout(() => controller.abort(), 240000);
+
+  let gotText = false;
+  let videoUrl = null;
+  let finalTiming = null;
+
+  try {
+    const res = await fetch('/chat-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, voice: state.voice }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      let errMsg = `Server xato (${res.status})`;
+      try { const e = await res.json(); errMsg = e.detail || errMsg; } catch(_) {}
+      throw new Error(errMsg);
+    }
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        let ev; try { ev = JSON.parse(trimmed.slice(5).trim()); } catch(_) { continue; }
+
+        if (ev.type === 'text') {
+          gotText = true;
+          rmTyping();
+          addMsg(ev.text, 'bot');
+          $('loadTxt').textContent = 'ovoz tayyorlanmoqda';
+          stepActive('s2');
+        }
+        else if (ev.type === 'tts_done') {
+          $('loadTxt').textContent = 'video yaratilmoqda';
+          stepActive('s3');
+        }
+        else if (ev.type === 'video') {
+          videoUrl = ev.video;
+          if (ev.timing) finalTiming = ev.timing;
+        }
+        else if (ev.type === 'error') {
+          throw new Error(ev.message || 'Streaming xato');
+        }
+      }
+    }
+    clearTimeout(timeout);
+    hideOverlay();
+    if (finalTiming) showTiming(finalTiming);
+    if (videoUrl) playVideo(videoUrl);
+    else          setState('Tayyor', '');
+
+  } catch (err) {
+    clearTimeout(timeout);
+    hideOverlay();
+    rmTyping();
+    if (err.name === 'AbortError') addBotError('So\'rov vaqt tugadi');
+    else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) addBotError('Server bilan aloqa yo\'qoldi');
+    else { toast(err.message, 'error'); if (!gotText) addBotError(err.message); }
+    setState('Xatolik', 'error');
+    setTimeout(() => setState('Tayyor', ''), 3000);
+  } finally {
+    state.busy = false;
+    $('sendBtn').disabled = false;
+    inpEl.disabled = false;
+    inpEl.focus();
+  }
+}
+
+// ── Input handlers ────────────────────────────────────
+function autoResize() {
+  inpEl.style.height = 'auto';
+  inpEl.style.height = Math.min(inpEl.scrollHeight, 100) + 'px';
+}
+function updateCharCount() {
+  $('charCount').textContent = inpEl.value.length + ' / 500';
+}
+inpEl.addEventListener('input', () => { autoResize(); updateCharCount(); });
+inpEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+$('sendBtn').addEventListener('click', send);
+
+// ── Ovozlar ro'yxati ──────────────────────────────────
+async function loadVoices() {
+  const sel = $('voiceSel');
+  try {
+    const r = await fetch('/voices');
+    const d = await r.json();
+    state.voice = d.default || 'madina';
+    sel.innerHTML = '';
+    (d.voices || []).forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.id;
+      o.textContent = v.label || v.id;
+      if (v.id === state.voice) o.selected = true;
+      sel.appendChild(o);
+    });
+  } catch (_) {
+    sel.innerHTML = '<option value="madina">Madina (edge)</option>';
+  }
+  sel.addEventListener('change', () => { state.voice = sel.value; });
+}
+loadVoices();
+
+// ── Health polling ────────────────────────────────────
+async function checkHealth() {
+  try {
+    const r = await fetch('/health');
+    const d = await r.json();
+    if (d.model === 'loaded') {
+      state.modelReady = true;
+      setState('Tayyor', '');
+      if (state.pollHealthId) { clearInterval(state.pollHealthId); state.pollHealthId = null; }
+      return true;
+    }
+    setState('Model yuklanmoqda', 'busy');
+    return false;
+  } catch (_) {
+    setState('Server topilmadi', 'error');
+    return false;
+  }
+}
+
+(async () => {
+  setState('Ulanmoqda', 'busy');
+  const ok = await checkHealth();
+  if (!ok && !state.modelReady) state.pollHealthId = setInterval(checkHealth, 4000);
+  if (!ok) setTimeout(async () => {
+    const ok2 = await checkHealth();
+    if (!ok2) toast('Server bilan ulanib bo\'lmadi', 'error', 8000);
+  }, 8000);
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Avatar Studio — UTY</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Space+Grotesk:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --font-display:"Newsreader", Georgia, serif;
+    --font-body:"IBM Plex Sans", system-ui, sans-serif;
+    --font-mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  #root{ height:100vh; }
+  #boot{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:#FAF7F0; z-index:9999; transition:opacity .4s; }
+  #boot.gone{ opacity:0; pointer-events:none; }
+  #boot .b{ font-family:"Newsreader",serif; font-style:italic; font-size:22px; color:#0F2540; }
+</style>
+</head>
+<body>
+<div id="boot"><div class="b">Avatar Studio</div></div>
+<div id="root"></div>
+<script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
