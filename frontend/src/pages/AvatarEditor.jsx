@@ -1,10 +1,11 @@
 /* Avatar Studio — Avatar muharriri (yaratish + barcha sozlamalar).
    Chapda tabli sozlamalar, o'ngda yopishqoq jonli ko'rinish. */
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { I } from "../lib/icons.jsx";
 import { Btn, Field, Segmented, Range } from "../components/ui/index.jsx";
 import { Topbar } from "../components/AdminShell.jsx";
 import { VOICES, LANGUAGES } from "../data/constants.js";
+import { API } from "../api/client.js";
 
 const EDITOR_TABS = [
   { id: "portrait", label: "Portret", icon: "image" },
@@ -37,6 +38,73 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
   const setP = (patch) => setDraft((d) => ({ ...d, portrait: { ...d.portrait, ...patch } }));
 
+  // Rasm yuklash holati. Yangi (saqlanmagan) avatar uchun id yo'q — avval saqlash kerak.
+  const savedId = base && draft.id && draft.id !== "new" ? draft.id : null;
+  const [uploading, setUploading] = useState(false);
+  const [photoErr, setPhotoErr] = useState("");
+  const [photoVer, setPhotoVer] = useState(0);
+  async function handlePhoto(fileList) {
+    const file = fileList && fileList[0];
+    if (!file || !savedId) return;
+    setUploading(true); setPhotoErr("");
+    try {
+      await API.uploadPhoto(savedId, file);
+      set({ hasPhoto: true });
+      setPhotoVer((v) => v + 1);
+    } catch (e) {
+      setPhotoErr(e.message || "Rasm yuklanmadi");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Idle generatsiya holati + polling (build.state: idle|processing|done|error).
+  const [build, setBuild] = useState(() => (base && base.build) || null);
+  const [idleVer, setIdleVer] = useState(0);
+  const [buildErr, setBuildErr] = useState("");
+  const pollRef = useRef(null);
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  async function pollBuild() {
+    if (!savedId) return;
+    try {
+      const st = await API.buildStatus(savedId);
+      setBuild(st);
+      if (!st.running && (st.state === "done" || st.state === "error")) {
+        clearInterval(pollRef.current); pollRef.current = null;
+        if (st.state === "done") {
+          if (st.stage === "musetalk_prep") set({ hasArtifact: true });
+          else setIdleVer((v) => v + 1);
+        }
+        if (st.state === "error") setBuildErr(st.error || "Generatsiya xatosi");
+      }
+    } catch { /* ignore poll xatolari */ }
+  }
+  async function startBuildIdle() {
+    if (!savedId) return;
+    setBuildErr("");
+    try {
+      await API.buildIdle(savedId);
+      setBuild({ state: "processing", stage: "idle_gen", running: true });
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(pollBuild, 2500);
+    } catch (e) {
+      setBuildErr(e.message || "Idle yaratib bo'lmadi");
+    }
+  }
+  async function startBuildMusetalk() {
+    if (!savedId) return;
+    setBuildErr("");
+    try {
+      await API.buildMusetalk(savedId);
+      setBuild({ state: "processing", stage: "musetalk_prep", running: true });
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(pollBuild, 2500);
+    } catch (e) {
+      setBuildErr(e.message || "Artefakt yaratib bo'lmadi");
+    }
+  }
+
   return (
     <div className="ed">
       <Topbar
@@ -66,33 +134,41 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
           </div>
 
           <div className="ed-form">
-            {tab === "portrait" && <TabPortrait draft={draft} set={set} setP={setP} />}
+            {tab === "portrait" && <TabPortrait draft={draft} set={set} setP={setP}
+              savedId={savedId} uploading={uploading} photoErr={photoErr} photoVer={photoVer}
+              onPhoto={handlePhoto} />}
             {tab === "voice"    && <TabVoice draft={draft} set={set} />}
             {tab === "persona"  && <TabPersona draft={draft} set={set} />}
-            {tab === "motion"   && <TabMotion draft={draft} set={set} />}
+            {tab === "motion"   && <TabMotion draft={draft} set={set}
+              savedId={savedId} build={build} idleVer={idleVer} buildErr={buildErr}
+              onBuildIdle={startBuildIdle} onBuildMusetalk={startBuildMusetalk} />}
             {tab === "sugg"     && <TabSugg draft={draft} set={set} />}
             {tab === "brand"    && <TabBrand draft={draft} set={set} setP={setP} />}
           </div>
         </div>
 
         {/* right: live preview */}
-        <EditorPreview draft={draft} />
+        <EditorPreview draft={draft} savedId={savedId} photoVer={photoVer} />
       </div>
     </div>
   );
 }
 
 /* ── Preview pane ── */
-function EditorPreview({ draft }) {
+function EditorPreview({ draft, savedId, photoVer }) {
   const [speaking, setSpeaking] = useState(false);
   const voice = VOICES.find((v) => v.id === draft.voice) || VOICES[0];
   const lang = LANGUAGES.find((l) => l.code === draft.language) || LANGUAGES[0];
+  const photoSrc = savedId && draft.hasPhoto ? API.photoUrl(savedId, photoVer) : null;
+  const imgStyle = photoSrc
+    ? { backgroundImage: `url(${photoSrc})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : { background: `linear-gradient(155deg, ${draft.portrait.from}, ${draft.portrait.to})` };
   return (
     <aside className="ed-preview">
       <div className="as-label" style={{ marginBottom: 14 }}>Jonli ko‘rinish</div>
       <div className={"ed-pv-card" + (speaking ? " speaking" : "")}>
-        <div className="ed-pv-img" style={{ background: `linear-gradient(155deg, ${draft.portrait.from}, ${draft.portrait.to})` }}>
-          <span className="ed-pv-initials">{draft.portrait.initials || draft.name[0]}</span>
+        <div className="ed-pv-img" style={imgStyle}>
+          {!photoSrc && <span className="ed-pv-initials">{draft.portrait.initials || draft.name[0]}</span>}
           {speaking && <div className="cs-eq"><span/><span/><span/><span/><span/></div>}
         </div>
         <div className="cs-frame" />
@@ -120,20 +196,36 @@ function EditorPreview({ draft }) {
 }
 
 /* ── Tab: Portrait ── */
-function TabPortrait({ draft, set, setP }) {
+function TabPortrait({ draft, set, setP, savedId, uploading, photoErr, photoVer, onPhoto }) {
+  const inputId = "ed-photo-input";
+  const photoSrc = savedId && draft.hasPhoto ? API.photoUrl(savedId, photoVer) : null;
+  const pick = () => { if (savedId && !uploading) document.getElementById(inputId)?.click(); };
   return (
     <Section title="Portret va identifikatsiya" desc="Avatar yuzini yuklang yoki vaqtincha gradient placeholder ishlating.">
-      <div className="ed-drop" onClick={() => set({ hasPhoto: !draft.hasPhoto })}>
-        {draft.hasPhoto ? (
-          <div className="ed-drop-filled" style={{ background: `linear-gradient(155deg, ${draft.portrait.from}, ${draft.portrait.to})` }}>
+      <input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" hidden
+        onChange={(e) => { onPhoto(e.target.files); e.target.value = ""; }} />
+
+      <div className={"ed-drop" + (savedId ? "" : " disabled")} onClick={pick}
+        style={savedId ? undefined : { cursor: "not-allowed", opacity: 0.6 }}>
+        {uploading ? (
+          <><div className="ed-drop-ico"><I.upload size={22} /></div>
+          <div className="ed-drop-t">Yuklanmoqda va yuz tekshirilmoqda…</div></>
+        ) : photoSrc ? (
+          <div className="ed-drop-filled" style={{ backgroundImage: `url(${photoSrc})`, backgroundSize: "cover", backgroundPosition: "center" }}>
             <I.check size={20} /><span>Portret yuklandi</span><small>almashtirish uchun bosing</small>
           </div>
         ) : (
           <><div className="ed-drop-ico"><I.upload size={22} /></div>
           <div className="ed-drop-t">Portret rasmini yuklang</div>
-          <div className="ed-drop-s">JPG yoki PNG · kamida 512×512 · old tomondan, yorug‘ fon</div></>
+          <div className="ed-drop-s">JPG, PNG yoki WebP · kamida 512×512 · old tomondan, yorug‘ fon</div></>
         )}
       </div>
+      {!savedId && (
+        <div className="ed-note"><I.bolt size={14} /><span>Rasm yuklash uchun avatarni avval <b>saqlang</b>. Saqlangach bu yerga qaytib portret yuklaysiz.</span></div>
+      )}
+      {photoErr && (
+        <div className="ed-note" style={{ borderColor: "var(--err, #C0392B)" }}><I.x size={14} /><span>{photoErr}</span></div>
+      )}
 
       <Row2>
         <Field label="Avatar nomi"><input className="as-field" value={draft.name} onChange={(e) => set({ name: e.target.value })} /></Field>
@@ -223,7 +315,17 @@ function TabPersona({ draft, set }) {
 }
 
 /* ── Tab: Motion / Lip-sync ── */
-function TabMotion({ draft, set }) {
+function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle, onBuildMusetalk }) {
+  const state = build && build.state;
+  const stage = build && build.stage;
+  const processing = !!(build && (build.running || state === "processing"));
+  const idleProcessing = processing && stage === "idle_gen";
+  const mtProcessing = processing && stage === "musetalk_prep";
+  // Idle tayyor: shu sessiyada yasaldi, yoki artefakt mavjud (idle undan oldin shart edi).
+  const idleDone = (stage === "idle_gen" && state === "done") || stage === "musetalk_prep" || !!draft.hasArtifact;
+  const mtDone = !!draft.hasArtifact;
+  const canBuild = savedId && draft.hasPhoto && !processing;
+  const canBuildMt = savedId && idleDone && !processing;
   return (
     <Section title="Idle harakat va lip-sync" desc="LivePortrait idle + MuseTalk parametrlari.">
       <Field label={`Ko‘z pirpiratish chastotasi · har ${draft.blinkRate}s`} hint="LivePortrait idle blink intervali.">
@@ -241,6 +343,43 @@ function TabMotion({ draft, set }) {
             options={[{value:"20",label:"20"},{value:"25",label:"25"},{value:"30",label:"30"}]} />
         </Field>
       </Row2>
+
+      <Field label="1-qadam · Idle video" hint="Portretdan blink animatsiyasi yaratadi. Parametrlarni o‘zgartirsangiz qayta yarating.">
+        <div className="ed-idle">
+          {idleDone && savedId && (
+            <video className="ed-idle-pv" src={API.idleUrl(savedId, idleVer)} muted loop autoPlay playsInline />
+          )}
+          <Btn kind={idleDone ? "ghost" : "primary"} icon="bolt"
+            onClick={onBuildIdle} disabled={!canBuild}>
+            {idleProcessing ? "Yaratilmoqda…" : idleDone ? "Qayta yaratish" : "Idle yaratish"}
+          </Btn>
+          {idleProcessing && <span className="ed-idle-st">LivePortrait ishlamoqda, ~15–30s…</span>}
+          {idleDone && !idleProcessing && <span className="ed-idle-st ok">Tayyor</span>}
+        </div>
+      </Field>
+
+      <Field label="2-qadam · MuseTalk artefakt" hint="Idle videodan lip-sync uchun latents/coords/mask tayyorlaydi. Idle qayta yaratilsa, buni ham qayta yarating.">
+        <div className="ed-idle">
+          <Btn kind={mtDone ? "ghost" : "primary"} icon="bolt"
+            onClick={onBuildMusetalk} disabled={!canBuildMt}>
+            {mtProcessing ? "Tayyorlanmoqda…" : mtDone ? "Qayta yaratish" : "Artefakt yaratish"}
+          </Btn>
+          {mtProcessing && <span className="ed-idle-st">MuseTalk preprocessing, ~30–60s…</span>}
+          {mtDone && !mtProcessing && <span className="ed-idle-st ok">Tayyor — avatar lip-sync uchun shay</span>}
+        </div>
+      </Field>
+      {!savedId && (
+        <div className="ed-note"><I.bolt size={14} /><span>Idle yaratish uchun avatarni <b>saqlang</b> va portret yuklang.</span></div>
+      )}
+      {savedId && !draft.hasPhoto && (
+        <div className="ed-note"><I.bolt size={14} /><span>Avval <b>Portret</b> tabida rasm yuklang.</span></div>
+      )}
+      {savedId && draft.hasPhoto && !idleDone && (
+        <div className="ed-note"><I.bolt size={14} /><span>MuseTalk artefakt uchun avval <b>1-qadam</b> (idle video)ni yarating.</span></div>
+      )}
+      {buildErr && (
+        <div className="ed-note" style={{ borderColor: "var(--err, #C0392B)" }}><I.x size={14} /><span>{buildErr}</span></div>
+      )}
       <div className="ed-note"><I.bolt size={14} /><span><b>Eslatma:</b> v15 da <code>bbox_shift</code> ishlamaydi (qattiq 0). Lab artikulyatsiyasini faqat <code>extra_margin</code> boshqaradi.</span></div>
     </Section>
   );

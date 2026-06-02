@@ -146,6 +146,14 @@
 .ed-note svg{ color:var(--brass); flex:none; margin-top:2px; }
 .ed-note code{ font-family:var(--font-mono); font-size:11px; background:var(--panel-2); padding:1px 5px; border-radius:3px; color:var(--ink); }
 
+.ed-idle{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.ed-idle-pv{ width:90px; height:120px; object-fit:cover; border-radius:var(--radius);
+  border:1px solid var(--line); background:#000; }
+.ed-idle .as-btn[disabled]{ opacity:.5; cursor:not-allowed; }
+.ed-idle-st{ font-family:var(--font-mono); font-size:11px; color:var(--ink-2);
+  text-transform:uppercase; letter-spacing:1px; }
+.ed-idle-st.ok{ color:var(--ok); }
+
 .ed-sugg-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:16px; }
 .ed-sugg-row{ display:flex; align-items:center; gap:11px; }
 .ed-sugg-num{ font-family:var(--font-mono); font-size:11px; color:var(--brass); width:22px; flex:none; }

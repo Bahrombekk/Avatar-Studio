@@ -1,6 +1,9 @@
 """MuseTalk lip-sync dvigateli — modellarni yuklash + audio→mp4 inference.
 
-madina_lp avatar artefakti (latents, koordinatalar, full_imgs) MT_DIR ichida.
+Modellar (VAE/UNet/Whisper/FaceParsing) avatardan MUSTAQIL — bir marta yuklanadi.
+Avatar artefakti (latents, koordinatalar, full_imgs, mask) esa HAR AVATAR uchun
+alohida: avval per-avatar artefakt (data/avatars/<id>/artifact/) qidiriladi, topilmasa
+eski madina_lp artefakti (MT_DIR) fallback bo'ladi. Yuklangan artefaktlar keshlanadi.
 """
 import glob
 import os
@@ -10,8 +13,9 @@ import threading
 import time
 
 from app.core.paths import (
-    MT_DIR, AVATAR_DIR, AVATAR_LATENTS, AVATAR_COORDS, AVATAR_MASK_COORD,
+    MT_DIR, AVATAR_LATENTS, AVATAR_COORDS, AVATAR_MASK_COORD,
     AVATAR_MASK_DIR, AVATAR_IMGS_DIR, VID_OUT_DIR,
+    avatar_artifact_paths,
 )
 
 # Og'ir importlarni MODUL yuklanishida (asosiy thread) bajaramiz. diffusers
@@ -25,17 +29,16 @@ try:
 except Exception as _imp_err:
     print(f"[LP-MuseTalk] eager import ogohlantirish: {_imp_err}")
 
-# ── Global model holatlari ──
+# ── Global model holatlari (avatardan mustaqil) ──
 _loaded = False
 _lock = threading.Lock()
 _vae = _unet = _pe = _whisper = _audio_processor = _fp = None
 _timesteps = _weight_dtype = _device = None
 
-_frame_list_cycle = None
-_coord_list_cycle = None
-_input_latent_list_cycle = None
-_mask_coords_list_cycle = None
-_mask_list_cycle = None
+# Per-avatar artefakt keshi: key → {latents, coords, mask_coords, frames, masks}
+_avatars = {}
+_avatars_lock = threading.Lock()
+_LEGACY_KEY = "_legacy_madina_lp"
 
 
 def is_loaded() -> bool:
@@ -43,17 +46,14 @@ def is_loaded() -> bool:
 
 
 def _load():
-    """MuseTalk modellari + madina_lp avatar artifaktini yuklash (bir martalik)."""
+    """MuseTalk asosiy modellarini yuklash (bir martalik, avatardan mustaqil)."""
     global _loaded, _vae, _unet, _pe, _whisper, _audio_processor, _fp
     global _timesteps, _weight_dtype, _device
-    global _frame_list_cycle, _coord_list_cycle, _input_latent_list_cycle
-    global _mask_coords_list_cycle, _mask_list_cycle
 
     if _loaded:
         return
 
     import torch
-    import cv2
     from transformers import WhisperModel
     from musetalk.utils.face_parsing import FaceParsing
     from musetalk.utils.utils import load_all_model
@@ -87,29 +87,8 @@ def _load():
     _whisper.requires_grad_(False)
 
     _fp = FaceParsing(left_cheek_width=90, right_cheek_width=90)
-    print(f"[LP-MuseTalk] Asosiy modellar: {time.time()-t0:.1f}s")
-
-    if not AVATAR_LATENTS.exists():
-        raise RuntimeError(
-            f"Avatar artifact topilmadi: {AVATAR_DIR}\n"
-            f"Avval MuseTalk preprocessing ishga tushiring (assets/musetalk_idle_lp.yaml)."
-        )
-
-    t1 = time.time()
-    _input_latent_list_cycle = torch.load(str(AVATAR_LATENTS))
-    with open(AVATAR_COORDS, "rb") as f:
-        _coord_list_cycle = pickle.load(f)
-    with open(AVATAR_MASK_COORD, "rb") as f:
-        _mask_coords_list_cycle = pickle.load(f)
-
-    img_paths = sorted(glob.glob(str(AVATAR_IMGS_DIR / "*.png")))
-    _frame_list_cycle = [cv2.imread(p) for p in img_paths]
-    mask_paths = sorted(glob.glob(str(AVATAR_MASK_DIR / "*.png")))
-    _mask_list_cycle = [cv2.imread(p) for p in mask_paths]
-
-    print(f"[LP-MuseTalk] Avatar: {len(_frame_list_cycle)} kadr ({time.time()-t1:.1f}s)")
     _loaded = True
-    print(f"[LP-MuseTalk] Tayyor! ({time.time()-t0:.1f}s)")
+    print(f"[LP-MuseTalk] Asosiy modellar tayyor: {time.time()-t0:.1f}s")
 
 
 def ensure_loaded():
@@ -120,9 +99,69 @@ def ensure_loaded():
             _load()
 
 
+def _resolve_artifact(avatar_id):
+    """(kesh_kaliti, yo'llar_dict) qaytaradi. Avval per-avatar artefakt, keyin legacy fallback.
+
+    Topilmasa (None, None). Yangi avatar o'z artefaktiga ega bo'lguncha eski
+    madina_lp yuzini ulashadi (joriy demo xulqi saqlanadi)."""
+    if avatar_id:
+        ap = avatar_artifact_paths(avatar_id)
+        if ap["latents"].exists():
+            return avatar_id, ap
+    if AVATAR_LATENTS.exists():
+        return _LEGACY_KEY, {
+            "latents": AVATAR_LATENTS, "coords": AVATAR_COORDS,
+            "mask_coords": AVATAR_MASK_COORD,
+            "mask_dir": AVATAR_MASK_DIR, "imgs_dir": AVATAR_IMGS_DIR,
+        }
+    return None, None
+
+
+def _get_artifact(avatar_id):
+    """Avatar artefaktini (keshlangan) qaytaradi. Topilmasa RuntimeError."""
+    key, paths = _resolve_artifact(avatar_id)
+    if key is None:
+        raise RuntimeError(
+            "Avatar artefakti topilmadi — avval MuseTalk preprocessing bajaring"
+        )
+    with _avatars_lock:
+        cached = _avatars.get(key)
+    if cached is not None:
+        return cached
+
+    import torch
+    import cv2
+
+    t1 = time.time()
+    latents = torch.load(str(paths["latents"]))
+    with open(paths["coords"], "rb") as f:
+        coords = pickle.load(f)
+    with open(paths["mask_coords"], "rb") as f:
+        mask_coords = pickle.load(f)
+    frames = [cv2.imread(p) for p in sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))]
+    masks = [cv2.imread(p) for p in sorted(glob.glob(str(paths["mask_dir"] / "*.png")))]
+
+    art = {"latents": latents, "coords": coords, "mask_coords": mask_coords,
+           "frames": frames, "masks": masks}
+    with _avatars_lock:
+        _avatars[key] = art
+    print(f"[LP-MuseTalk] Artefakt '{key}': {len(frames)} kadr ({time.time()-t1:.1f}s)")
+    return art
+
+
+def invalidate(avatar_id):
+    """Avatar artefakt keshini bo'shatadi (preprocessing qayta yasalgach)."""
+    with _avatars_lock:
+        _avatars.pop(avatar_id, None)
+
+
 def warmup():
     """Birinchi inference sekin — startupda bir marta isitib qo'yish."""
     ensure_loaded()
+    key, _ = _resolve_artifact(None)
+    if key is None:
+        print("[LP-MuseTalk] Warmup o'tkazib yuborildi — hech qanday artefakt yo'q")
+        return
     import tempfile
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
@@ -140,7 +179,7 @@ def warmup():
     print(f"[LP-MuseTalk] Warmup: {time.time()-t:.1f}s")
 
 
-def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25) -> bool:
+def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None) -> bool:
     import torch
     import cv2
     import numpy as np
@@ -151,6 +190,13 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25) -> bool:
     ensure_loaded()
 
     try:
+        art = _get_artifact(avatar_id)
+        _input_latent_list_cycle = art["latents"]
+        _coord_list_cycle = art["coords"]
+        _mask_coords_list_cycle = art["mask_coords"]
+        _frame_list_cycle = art["frames"]
+        _mask_list_cycle = art["masks"]
+
         # 1. Whisper audio xususiyatlari
         whisper_input_features, librosa_length = _audio_processor.get_audio_feature(
             wav_path, weight_dtype=_weight_dtype

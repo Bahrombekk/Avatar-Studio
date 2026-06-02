@@ -1,9 +1,16 @@
 """Avatar CRUD endpointlari (/api/avatars)."""
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
-from app.services import avatar_store
+from app.core.paths import avatar_idle_file, avatar_portrait_file
+from app.schemas.avatar import AvatarCreate, AvatarUpdate
+from app.services import avatar_store, face, idle, jobs, preprocess
 
 router = APIRouter(prefix="/api/avatars", tags=["avatars"])
+
+# Yuklash chegaralari.
+MAX_PHOTO_BYTES = 12 * 1024 * 1024          # 12 MB
+ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 @router.get("")
@@ -20,13 +27,16 @@ def get_avatar(avatar_id: str):
 
 
 @router.post("")
-def create_avatar(data: dict = Body(...)):
-    return avatar_store.create_avatar(data)
+def create_avatar(data: AvatarCreate):
+    # by_alias → Portrait.from_ "from" bo'lib yoziladi (frontend kutgan shakl).
+    return avatar_store.create_avatar(data.model_dump(by_alias=True))
 
 
 @router.put("/{avatar_id}")
-def update_avatar(avatar_id: str, data: dict = Body(...)):
-    a = avatar_store.update_avatar(avatar_id, data)
+def update_avatar(avatar_id: str, data: AvatarUpdate):
+    # exclude_unset → faqat klient yuborgan maydonlar yangilanadi (qisman).
+    patch = data.model_dump(by_alias=True, exclude_unset=True)
+    a = avatar_store.update_avatar(avatar_id, patch)
     if not a:
         raise HTTPException(404, "Avatar topilmadi")
     return a
@@ -37,3 +47,107 @@ def delete_avatar(avatar_id: str):
     if not avatar_store.delete_avatar(avatar_id):
         raise HTTPException(404, "Avatar topilmadi")
     return {"deleted": avatar_id}
+
+
+@router.post("/{avatar_id}/photo")
+async def upload_photo(avatar_id: str, file: UploadFile = File(...)):
+    """Portret rasmini yuklaydi, yuzni tekshiradi va source/portrait.jpg ga saqlaydi.
+
+    Avatar avval mavjud bo'lishi shart (saqlangan bo'lishi kerak). Yuz validatsiyasi
+    o'tmasa 422 qaytadi va rasm SAQLANMAYDI.
+    """
+    if avatar_store.get_avatar(avatar_id) is None:
+        raise HTTPException(404, "Avatar topilmadi — avval avatarni saqlang")
+    if file.content_type not in ALLOWED_PHOTO_TYPES:
+        raise HTTPException(415, "Faqat JPG, PNG yoki WebP rasm qabul qilinadi")
+
+    data = await file.read()
+    if len(data) > MAX_PHOTO_BYTES:
+        raise HTTPException(413, f"Rasm juda katta (maksimum {MAX_PHOTO_BYTES // (1024 * 1024)} MB)")
+
+    result = face.validate_portrait(data)
+    if not result["ok"]:
+        raise HTTPException(422, result["error"])
+
+    # Validatsiyadan o'tdi — JPG sifatida saqlaymiz (idle generatsiya kirishi).
+    import cv2
+    import numpy as np
+    img = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    dest = avatar_portrait_file(avatar_id)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(dest), img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+    avatar = avatar_store.set_photo(avatar_id, True)
+    return {"ok": True, "avatar": avatar, "face": result["face"],
+            "width": result["width"], "height": result["height"]}
+
+
+@router.get("/{avatar_id}/photo")
+def get_photo(avatar_id: str):
+    """Saqlangan portret rasmini qaytaradi (editor preview uchun)."""
+    path = avatar_portrait_file(avatar_id)
+    if not path.is_file():
+        raise HTTPException(404, "Portret yuklanmagan")
+    return FileResponse(str(path), media_type="image/jpeg")
+
+
+@router.post("/{avatar_id}/build-idle")
+def build_idle(avatar_id: str):
+    """Idle (blink) video generatsiyani fon job sifatida boshlaydi.
+
+    Portret yuklangan bo'lishi shart. Holatni `GET /{id}` build maydonidan kuzating.
+    """
+    av = avatar_store.get_avatar(avatar_id)
+    if av is None:
+        raise HTTPException(404, "Avatar topilmadi")
+    if not av.get("hasPhoto") or not avatar_portrait_file(avatar_id).is_file():
+        raise HTTPException(409, "Avval portret rasm yuklang")
+    if jobs.is_running(avatar_id):
+        raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
+
+    started = jobs.start(avatar_id, "idle_gen", lambda: idle.generate_idle(avatar_id))
+    if not started:
+        raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
+    return {"ok": True, "state": "processing", "stage": "idle_gen"}
+
+
+@router.post("/{avatar_id}/build-musetalk")
+def build_musetalk(avatar_id: str):
+    """Idle videodan MuseTalk artefakt (latents/coords/mask) generatsiyasini boshlaydi.
+
+    Idle video oldindan yaratilgan bo'lishi shart. Holatni `GET /{id}/build`
+    (stage="musetalk_prep") orqali kuzating.
+    """
+    av = avatar_store.get_avatar(avatar_id)
+    if av is None:
+        raise HTTPException(404, "Avatar topilmadi")
+    if not avatar_idle_file(avatar_id).is_file():
+        raise HTTPException(409, "Avval idle video yarating")
+    if jobs.is_running(avatar_id):
+        raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
+
+    started = jobs.start(avatar_id, "musetalk_prep",
+                         lambda: preprocess.preprocess_avatar(avatar_id))
+    if not started:
+        raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
+    return {"ok": True, "state": "processing", "stage": "musetalk_prep"}
+
+
+@router.get("/{avatar_id}/build")
+def build_status(avatar_id: str):
+    """Joriy generatsiya holati (frontend polling uchun)."""
+    av = avatar_store.get_avatar(avatar_id)
+    if av is None:
+        raise HTTPException(404, "Avatar topilmadi")
+    build = av.get("build") or {"state": "idle", "stage": None, "error": None}
+    build["running"] = jobs.is_running(avatar_id)
+    return build
+
+
+@router.get("/{avatar_id}/idle")
+def get_idle(avatar_id: str):
+    """Generatsiya qilingan idle videosini qaytaradi (editor preview uchun)."""
+    path = avatar_idle_file(avatar_id)
+    if not path.is_file():
+        raise HTTPException(404, "Idle video hali yaratilmagan")
+    return FileResponse(str(path), media_type="video/mp4")

@@ -14,7 +14,6 @@ Boshqa avatarlar shu yuzni ulashadi, lekin OVOZ + PERSONALITY har avatarga xos.
 """
 import json
 import threading
-import time
 from datetime import datetime, timezone, timedelta
 
 from app.core.paths import (
@@ -176,22 +175,34 @@ def get_avatar(avatar_id):
         return _load_avatar(avatar_id)
 
 
-def _gen_id(name):
-    base = "av_" + "".join(c for c in (name or "avatar").lower() if c.isalnum())[:10]
-    return f"{base}_{int(time.time()) % 100000}"
+def _gen_id(name, existing_ids):
+    """Nomdan o'qiladigan, to'qnashuvsiz id yasaydi.
+
+    'av_' + nomning alfa-raqamli qismi (10 belgigacha). Agar shu id band bo'lsa,
+    '-2', '-3' ... qo'shib bo'sh variant topiladi (registry'ga qarab).
+    """
+    slug = "".join(c for c in (name or "").lower() if c.isalnum())[:10] or "avatar"
+    base = f"av_{slug}"
+    taken = set(existing_ids)
+    if base not in taken:
+        return base
+    i = 2
+    while f"{base}-{i}" in taken:
+        i += 1
+    return f"{base}-{i}"
 
 
 def create_avatar(data):
     with _lock:
         _ensure_seed()
+        ids = _read_registry() or []
         new = dict(data)
-        new["id"] = _gen_id(data.get("name", "avatar"))
+        new["id"] = _gen_id(data.get("name", "avatar"), ids)
         new["real"] = False           # yangi avatar — preprocessing kerak (video yo'q)
         new["updated"] = "Hozir"
         for k in _STAT_KEYS:
             new.setdefault(k, 0)
         _save_avatar(new)
-        ids = _read_registry() or []
         ids.insert(0, new["id"])
         _write_registry(ids)
         return _load_avatar(new["id"])
@@ -208,6 +219,57 @@ def update_avatar(avatar_id, data):
         # Statistikani so'rovdan emas, mavjud qiymatdan saqlaymiz.
         for k in _STAT_KEYS:
             merged[k] = existing.get(k, 0)
+        _save_avatar(merged)
+        return _load_avatar(avatar_id)
+
+
+def set_photo(avatar_id, has_photo: bool):
+    """Avatar config'ida hasPhoto bayrog'ini o'rnatadi (rasm yuklangach).
+
+    Faqat config'ga tegadi; stats va boshqa maydonlarga ta'sir qilmaydi.
+    Avatar topilmasa None qaytaradi.
+    """
+    with _lock:
+        existing = _load_avatar(avatar_id)
+        if existing is None:
+            return None
+        merged = {**existing, "hasPhoto": bool(has_photo), "updated": "Hozir"}
+        _save_avatar(merged)
+        return _load_avatar(avatar_id)
+
+
+def set_ready(avatar_id, ready: bool = True):
+    """Avatar 'tayyor' holatini o'rnatadi (MuseTalk artefakt yasalgach).
+
+    ready=True → real=True, hasArtifact=True, status="live". Avatar endi o'z
+    yuzi bilan lip-sync qila oladi. Avatar topilmasa None qaytaradi.
+    """
+    with _lock:
+        existing = _load_avatar(avatar_id)
+        if existing is None:
+            return None
+        if ready:
+            merged = {**existing, "real": True, "hasArtifact": True,
+                      "status": "live", "updated": "Hozir"}
+        else:
+            merged = {**existing, "real": False, "hasArtifact": False, "updated": "Hozir"}
+        _save_avatar(merged)
+        return _load_avatar(avatar_id)
+
+
+def set_build(avatar_id, state: str, stage: str = None, error: str = None):
+    """Avatar config'ida 'build' holatini yangilaydi (idle/MuseTalk generatsiya bosqichi).
+
+    state: "idle" | "processing" | "done" | "error"
+    stage: qaysi bosqich ("idle_gen" | "musetalk" | None)
+    Frontend shu maydonni polling qilib jarayonni kuzatadi. Avatar yo'q → None.
+    """
+    with _lock:
+        existing = _load_avatar(avatar_id)
+        if existing is None:
+            return None
+        build = {"state": state, "stage": stage, "error": error, "updated": _now_iso()}
+        merged = {**existing, "build": build}
         _save_avatar(merged)
         return _load_avatar(avatar_id)
 

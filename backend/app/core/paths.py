@@ -14,6 +14,12 @@ MT_DIR = Path(os.environ.get("MT_DIR", "/home/user/avatar_project/MuseTalk"))
 AVATAR_ID = "madina_lp"
 AVATAR_DIR = MT_DIR / f"results/v15/avatars/{AVATAR_ID}"
 
+# ── LivePortrait (idle generatsiya, alohida conda muhitida ishlaydi) ──
+# Standart: loyiha ichidagi models/LivePortrait; LP_DIR env bilan bekor qilsa bo'ladi.
+_PROJECT_ROOT = BACKEND_DIR.parent
+LP_DIR = Path(os.environ.get("LP_DIR", str(_PROJECT_ROOT / "models" / "LivePortrait")))
+LP_GEN_IDLE = LP_DIR / "gen_idle.py"
+
 AVATAR_LATENTS = AVATAR_DIR / "latents.pt"
 AVATAR_COORDS = AVATAR_DIR / "coords.pkl"
 AVATAR_MASK_COORD = AVATAR_DIR / "mask_coords.pkl"
@@ -66,6 +72,43 @@ def voice_cache_file(avatar_id: str, voice: str) -> Path:
 
 def voice_videos_dir(avatar_id: str, voice: str) -> Path:
     return voice_dir(avatar_id, voice) / "videos"
+
+
+def avatar_source_dir(avatar_id: str) -> Path:
+    """Foydalanuvchi yuklagan xom materiallar (portret rasm) papkasi."""
+    return avatar_dir(avatar_id) / "source"
+
+
+def avatar_portrait_file(avatar_id: str) -> Path:
+    """Avatar manba portreti (yuz validatsiyasidan o'tgan, idle generatsiya kirishi)."""
+    return avatar_source_dir(avatar_id) / "portrait.jpg"
+
+
+def avatar_idle_file(avatar_id: str) -> Path:
+    """LivePortrait generatsiya qilgan idle (blink) video — MuseTalk preprocessing kirishi."""
+    return avatar_dir(avatar_id) / "idle.mp4"
+
+
+def avatar_artifact_dir(avatar_id: str) -> Path:
+    """MuseTalk preprocessing natijasi (latents.pt, coords.pkl, mask/, full_imgs/, ...).
+
+    Bu artefakt real-time inference kirishi — har avatar uchun alohida.
+    """
+    return avatar_dir(avatar_id) / "artifact"
+
+
+def avatar_artifact_paths(avatar_id: str) -> dict:
+    """Artefakt ichidagi barcha fayl/papka yo'llari (preprocessing + inference uchun)."""
+    d = avatar_artifact_dir(avatar_id)
+    return {
+        "dir": d,
+        "latents": d / "latents.pt",
+        "coords": d / "coords.pkl",
+        "mask_coords": d / "mask_coords.pkl",
+        "mask_dir": d / "mask",
+        "imgs_dir": d / "full_imgs",
+        "info": d / "avator_info.json",
+    }
 
 
 # ── Vaqtinchalik (Linux tmpfs) ──

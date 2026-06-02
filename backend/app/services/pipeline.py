@@ -69,7 +69,7 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
 
     t3 = time.time()
     linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
-    ok = musetalk_infer(wav_path, linux_mp4, fps=fps)
+    ok = musetalk_infer(wav_path, linux_mp4, fps=fps, avatar_id=hist_key)
     if os.path.exists(wav_path):
         os.remove(wav_path)
     t_mt = round(time.time() - t3, 2)
@@ -142,7 +142,7 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
 
     t3 = time.time()
     linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
-    ok = musetalk_infer(wav_full, linux_mp4, fps=fps)
+    ok = musetalk_infer(wav_full, linux_mp4, fps=fps, avatar_id=hist_key)
     try:
         os.remove(wav_full)
     except Exception:

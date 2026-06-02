@@ -27,6 +27,54 @@ export const API = {
     if (!r.ok) throw new Error("o'chirilmadi");
     return await r.json();
   },
+  // Portret rasmini yuklash (multipart). Backend yuzni tekshiradi.
+  async uploadPhoto(id, file) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/photo", {
+      method: "POST", body: fd,
+    });
+    if (!r.ok) {
+      let msg = "rasm yuklanmadi";
+      try { const e = await r.json(); if (e.detail) msg = e.detail; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return await r.json();
+  },
+  // Saqlangan portret URL'i (cache buzish uchun versiya bilan).
+  photoUrl(id, ver) {
+    return "/api/avatars/" + encodeURIComponent(id) + "/photo?v=" + (ver || 0);
+  },
+  // Idle (blink) video generatsiyani boshlash (fon job).
+  async buildIdle(id) {
+    const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/build-idle", { method: "POST" });
+    if (!r.ok) {
+      let msg = "idle yaratilmadi";
+      try { const e = await r.json(); if (e.detail) msg = e.detail; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return await r.json();
+  },
+  // MuseTalk artefakt (latents/coords/mask) generatsiyani boshlash (fon job).
+  async buildMusetalk(id) {
+    const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/build-musetalk", { method: "POST" });
+    if (!r.ok) {
+      let msg = "artefakt yaratilmadi";
+      try { const e = await r.json(); if (e.detail) msg = e.detail; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return await r.json();
+  },
+  // Generatsiya holati (polling).
+  async buildStatus(id) {
+    const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/build");
+    if (!r.ok) throw new Error("holat olinmadi");
+    return await r.json();
+  },
+  // Generatsiya qilingan idle video URL'i.
+  idleUrl(id, ver) {
+    return "/api/avatars/" + encodeURIComponent(id) + "/idle?v=" + (ver || 0);
+  },
   async analytics() {
     const r = await fetch("/api/analytics");
     if (!r.ok) throw new Error("analitika yuklanmadi");
