@@ -9,14 +9,17 @@ from pathlib import Path
 
 from app.core.config import BACKEND_DIR
 
-# ── Modellar (tashqi, MT_DIR env bilan moslashuvchan) ──
-MT_DIR = Path(os.environ.get("MT_DIR", "/home/user/avatar_project/MuseTalk"))
+# Loyiha ildizi (backend/ ning ota-papkasi) — barcha standart yo'llar shunga nisbatan.
+_PROJECT_ROOT = BACKEND_DIR.parent
+
+# ── MuseTalk modellari (standart: loyiha ichidagi models/MuseTalk) ──
+# MT_DIR env bilan bekor qilsa bo'ladi; aks holda loyiha o'zini-o'zi ta'minlaydi.
+MT_DIR = Path(os.environ.get("MT_DIR", str(_PROJECT_ROOT / "models" / "MuseTalk")))
 AVATAR_ID = "madina_lp"
 AVATAR_DIR = MT_DIR / f"results/v15/avatars/{AVATAR_ID}"
 
 # ── LivePortrait (idle generatsiya, alohida conda muhitida ishlaydi) ──
 # Standart: loyiha ichidagi models/LivePortrait; LP_DIR env bilan bekor qilsa bo'ladi.
-_PROJECT_ROOT = BACKEND_DIR.parent
 LP_DIR = Path(os.environ.get("LP_DIR", str(_PROJECT_ROOT / "models" / "LivePortrait")))
 LP_GEN_IDLE = LP_DIR / "gen_idle.py"
 
@@ -31,6 +34,13 @@ DATA_DIR = BACKEND_DIR / "data"
 STATIC_DIR = BACKEND_DIR / "static"
 CHECKPOINTS_DIR = BACKEND_DIR / "checkpoints"
 IDLE_IMAGE = STATIC_DIR / "idle.jpg"
+
+# ── insightface (yuz validatsiyasi, buffalo_l) — loyiha ichida bundle qilingan ──
+# insightface modelni <root>/models/<name> sifatida qidiradi, ya'ni
+# checkpoints/insightface/models/buffalo_l. INSIGHTFACE_ROOT env bilan bekor qilsa bo'ladi.
+INSIGHTFACE_ROOT = Path(
+    os.environ.get("INSIGHTFACE_ROOT", str(CHECKPOINTS_DIR / "insightface"))
+)
 
 # ── Per-avatar / per-voice saqlash tuzilmasi ──
 #   data/registry.json                                  → avatar id'lar ro'yxati (tartib)

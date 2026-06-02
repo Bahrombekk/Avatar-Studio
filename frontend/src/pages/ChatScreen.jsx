@@ -2,9 +2,9 @@
    Portret ustuni + suhbat oqimi. REAL pipeline: GPT → TTS → MuseTalk video
    /chat-stream (SSE) orqali. Avatar props'dan o'qiladi. */
 import React, { useState, useRef, useEffect } from "react";
-import { I } from "../lib/icons.jsx";
-import { API } from "../api/client.js";
-import { LANGUAGES } from "../data/constants.js";
+import { I } from "../lib/icons";
+import { API } from "../api/client";
+import { LANGUAGES } from "../data/constants";
 
 export function ChatScreen({ avatar, embedded = false }) {
   const greeting = {
@@ -110,7 +110,7 @@ export function ChatScreen({ avatar, embedded = false }) {
                 <video ref={videoRef} className="cs-real-media" src={videoUrl}
                   autoPlay playsInline onEnded={() => setSpeaking(false)} />
               ) : (
-                <img className="cs-real-media" src="/idle.jpg" alt={avatar.name} />
+                <img className="cs-real-media" src={API.photoUrl(avatar.id)} alt={avatar.name} />
               )
             ) : (
               <span className="cs-portrait-initials">{avatar.portrait.initials}</span>

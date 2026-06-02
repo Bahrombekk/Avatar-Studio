@@ -1,15 +1,40 @@
 /* Avatar Studio — icon set (stroke, currentColor, 24px grid). */
-export function Icon({ d, size = 18, fill = false, stroke = 1.6, children, ...rest }) {
+import type { ReactElement, ReactNode, SVGProps } from "react";
+
+export type IconProps = Omit<SVGProps<SVGSVGElement>, "stroke"> & {
+  d?: string;
+  size?: number;
+  stroke?: number;
+  children?: ReactNode;
+};
+
+export function Icon({
+  d,
+  size = 18,
+  stroke = 1.6,
+  children,
+  ...rest
+}: IconProps): ReactElement {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth={stroke}
-         strokeLinecap="round" strokeLinejoin="round" {...rest}>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={stroke}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...rest}
+    >
       {d ? <path d={d} /> : children}
     </svg>
   );
 }
 
-export const I = {
+type IconRender = (props: IconProps) => ReactElement;
+
+export const I: Record<string, IconRender> = {
   grid:      (p) => <Icon {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></Icon>,
   users:     (p) => <Icon {...p}><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3 3 0 0 1 0 5.6"/><path d="M17.5 20a5.5 5.5 0 0 0-3-4.9"/></Icon>,
   chat:      (p) => <Icon {...p}><path d="M21 12a8 8 0 0 1-11.5 7.2L4 20.5l1.3-5A8 8 0 1 1 21 12Z"/></Icon>,

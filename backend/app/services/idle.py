@@ -7,7 +7,7 @@ yuklangan portretdan gen_idle.py idle.mp4 yasaydi.
 Bu funksiya jobs.start() ichida fon thread'ida chaqiriladi (uzoq, ~10-20s GPU).
 """
 import os
-import shutil
+import sys
 import subprocess
 
 from app.core.paths import (
@@ -18,13 +18,18 @@ from app.core.paths import (
 )
 from app.services import avatar_store
 
-CONDA_ENV = os.environ.get("LP_CONDA_ENV", "liveportrait")
 IDLE_DURATION = 4.0     # sekund (MuseTalk forward+backward loop qiladi)
 TIMEOUT_SEC = 600       # 10 daqiqa — generatsiya bundan oshmasligi kerak
 
 
-def _conda_bin() -> str:
-    return os.environ.get("CONDA_EXE") or shutil.which("conda") or "conda"
+def _python_bin() -> str:
+    """Idle generatsiya uchun Python interpretatori.
+
+    Portativ rejim: bundle qilingan muhit (backend o'zi ishlayotgan python =
+    sys.executable) gen_idle.py ni ishlata oladi. Eski alohida conda muhiti
+    kerak bo'lsa LP_PYTHON env bilan bekor qilinadi.
+    """
+    return os.environ.get("LP_PYTHON") or sys.executable
 
 
 def generate_idle(avatar_id: str) -> str:
@@ -46,16 +51,20 @@ def generate_idle(avatar_id: str) -> str:
     blink_every = float(av.get("blinkRate", 4))
 
     cmd = [
-        _conda_bin(), "run", "-n", CONDA_ENV,
-        "python", str(LP_GEN_IDLE),
+        _python_bin(), str(LP_GEN_IDLE),
         "--source", str(src),
         "--out", str(out),
         "--fps", str(fps),
         "--blink-every", str(blink_every),
         "--duration", str(IDLE_DURATION),
     ]
+    # Toza PYTHONPATH: backend MT_DIR (MuseTalk) ni PYTHONPATH'ga qo'yadi, lekin
+    # MuseTalk va LivePortrait ikkalasida ham `src` paketi bor — to'qnashuv
+    # segfault (kod -11) keltiradi. Subprocess uchun faqat LP_DIR qoldiramiz.
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(LP_DIR)
     proc = subprocess.run(cmd, cwd=str(LP_DIR), capture_output=True,
-                          text=True, timeout=TIMEOUT_SEC)
+                          text=True, timeout=TIMEOUT_SEC, env=env)
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip()[-600:]
         raise RuntimeError(f"Idle generatsiya xato (kod {proc.returncode}): {tail}")

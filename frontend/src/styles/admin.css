@@ -118,6 +118,22 @@
 .ed-swatch:hover{ transform:scale(1.06); }
 .ed-swatch.on{ border-color:var(--ink); box-shadow:0 0 0 3px var(--bg), 0 0 0 4px var(--brass); }
 
+.ed-progress{ margin-top:10px; height:5px; width:100%; border-radius:999px; overflow:hidden;
+  background:var(--panel-2); position:relative; }
+.ed-progress-bar{ position:absolute; top:0; left:0; height:100%; width:40%; border-radius:999px;
+  background:linear-gradient(90deg, transparent, var(--brass), transparent);
+  animation:ed-indeterminate 1.2s ease-in-out infinite; }
+@keyframes ed-indeterminate{
+  0%{ left:-40%; } 100%{ left:100%; }
+}
+
+.av-card-top-r{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+.av-card-model{ display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:999px;
+  font-family:var(--font-mono); font-size:8.5px; letter-spacing:.4px; text-transform:uppercase;
+  border:1px solid var(--line); color:var(--ink-3); background:var(--panel-2); white-space:nowrap; }
+.av-card-model.on{ color:var(--ok, #2E7D32); border-color:color-mix(in srgb, var(--ok, #2E7D32) 40%, transparent);
+  background:color-mix(in srgb, var(--ok, #2E7D32) 12%, transparent); }
+
 .ed-lang{ display:flex; gap:9px; flex-wrap:wrap; }
 .ed-lang-btn{ display:flex; align-items:center; gap:9px; padding:10px 15px; border:1px solid var(--line);
   background:var(--card); border-radius:var(--radius); cursor:pointer; font-family:var(--font-body);
@@ -234,6 +250,8 @@
   cursor:pointer; box-shadow:var(--shadow-sm); transition:.13s; }
 .pv-back:hover{ border-color:var(--brass); color:var(--brass); }
 .pv-stage{ flex:1; min-height:0; }
+.pv-empty{ height:100%; display:flex; align-items:center; justify-content:center;
+  color:var(--ink-2); font-family:var(--font-mono); font-size:13px; letter-spacing:.5px; }
 .pv-stage .cs-root{ height:100%; border:0; }
 .pv-stage .cs-left{ padding-top:64px; }
 
@@ -245,3 +263,14 @@
   .ed-preview{ border-left:0; border-top:1px solid var(--line); }
 }
 @media (prefers-reduced-motion: reduce){ *,*::before,*::after{ animation-duration:.01ms !important; transition-duration:.01ms !important; } }
+
+/* ── Toast bildirishnomalari ── */
+.toast-wrap{ position:fixed; right:20px; bottom:20px; z-index:10000;
+  display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+.toast{ min-width:220px; max-width:360px; padding:12px 16px;
+  border-radius:var(--radius-lg); font-size:13.5px; font-weight:500;
+  color:var(--on-navy); background:var(--navy); box-shadow:var(--shadow);
+  border:1px solid var(--line); animation:toast-in .22s ease; }
+.toast-error{ background:var(--err); border-color:var(--err-soft); color:#fff; }
+.toast-success{ background:var(--ok); border-color:var(--ok-soft); color:#fff; }
+@keyframes toast-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }

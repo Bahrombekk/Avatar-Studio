@@ -1,0 +1,39 @@
+{
+  "name": "Yulduz",
+  "role": "Virtual yordamchi",
+  "brand": "O‘zbekiston Temir Yo‘llari",
+  "brandShort": "UTY",
+  "status": "live",
+  "accent": "#B98944",
+  "portrait": {
+    "from": "#6D4AA0",
+    "to": "#3B2566",
+    "initials": "Y"
+  },
+  "voice": "ru_alena",
+  "language": "ru",
+  "persona": "O'zbekiston temir yo'llariga doir malumot berasan faqat to'lliqroq so'rasa to'lliqroq malumot berasan",
+  "respLen": "medium",
+  "temperature": 0.4,
+  "speechRate": 0,
+  "fps": 25,
+  "blinkRate": 4,
+  "headMotion": 0.45,
+  "extraMargin": 16,
+  "hasPhoto": true,
+  "suggestions": [
+    "Chipta narxi qancha?",
+    "Toshkent–Samarqand poyezdi",
+    "Bagaj qoidalari"
+  ],
+  "id": "av_yulduz",
+  "real": true,
+  "updated": "Hozir",
+  "build": {
+    "state": "done",
+    "stage": "musetalk_prep",
+    "error": null,
+    "updated": "2026-06-02T08:07:25.610341+00:00"
+  },
+  "hasArtifact": true
+}

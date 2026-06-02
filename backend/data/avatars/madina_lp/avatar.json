@@ -11,7 +11,7 @@
     "to": "#0F2540",
     "initials": "M"
   },
-  "voice": "madina",
+  "voice": "yulduz",
   "language": "uz",
   "extraMargin": 16,
   "fps": 25,
@@ -23,6 +23,7 @@
   "speechRate": 0,
   "hasPhoto": true,
   "real": true,
+  "hasArtifact": true,
   "suggestions": [
     "Chipta narxi qancha?",
     "Toshkent–Samarqand poyezdi",

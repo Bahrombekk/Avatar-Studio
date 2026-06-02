@@ -127,7 +127,7 @@ def build_musetalk(avatar_id: str):
         raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
 
     started = jobs.start(avatar_id, "musetalk_prep",
-                         lambda: preprocess.preprocess_avatar(avatar_id))
+                         lambda: preprocess.preprocess_avatar_subprocess(avatar_id))
     if not started:
         raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
     return {"ok": True, "state": "processing", "stage": "musetalk_prep"}

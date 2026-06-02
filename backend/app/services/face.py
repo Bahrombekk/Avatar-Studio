@@ -36,8 +36,11 @@ def _get_app():
     with _lock:
         if _app is None:
             from insightface.app import FaceAnalysis
+
+            from app.core.paths import INSIGHTFACE_ROOT
             app = FaceAnalysis(
                 name="buffalo_l",
+                root=str(INSIGHTFACE_ROOT),
                 allowed_modules=["detection", "landmark_3d_68"],
                 providers=["CPUExecutionProvider"],
             )

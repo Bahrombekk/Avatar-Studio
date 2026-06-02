@@ -1,11 +1,11 @@
 /* Avatar Studio — Avatar muharriri (yaratish + barcha sozlamalar).
    Chapda tabli sozlamalar, o'ngda yopishqoq jonli ko'rinish. */
 import { useState, useEffect, useRef } from "react";
-import { I } from "../lib/icons.jsx";
+import { I } from "../lib/icons";
 import { Btn, Field, Segmented, Range } from "../components/ui/index.jsx";
 import { Topbar } from "../components/AdminShell.jsx";
-import { VOICES, LANGUAGES } from "../data/constants.js";
-import { API } from "../api/client.js";
+import { VOICES, LANGUAGES } from "../data/constants";
+import { API } from "../api/client";
 
 const EDITOR_TABS = [
   { id: "portrait", label: "Portret", icon: "image" },
@@ -161,7 +161,7 @@ function EditorPreview({ draft, savedId, photoVer }) {
   const lang = LANGUAGES.find((l) => l.code === draft.language) || LANGUAGES[0];
   const photoSrc = savedId && draft.hasPhoto ? API.photoUrl(savedId, photoVer) : null;
   const imgStyle = photoSrc
-    ? { backgroundImage: `url(${photoSrc})`, backgroundSize: "cover", backgroundPosition: "center" }
+    ? { backgroundImage: `url(${photoSrc})`, backgroundSize: "cover", backgroundPosition: "center top" }
     : { background: `linear-gradient(155deg, ${draft.portrait.from}, ${draft.portrait.to})` };
   return (
     <aside className="ed-preview">
@@ -211,9 +211,9 @@ function TabPortrait({ draft, set, setP, savedId, uploading, photoErr, photoVer,
           <><div className="ed-drop-ico"><I.upload size={22} /></div>
           <div className="ed-drop-t">Yuklanmoqda va yuz tekshirilmoqda…</div></>
         ) : photoSrc ? (
-          <div className="ed-drop-filled" style={{ backgroundImage: `url(${photoSrc})`, backgroundSize: "cover", backgroundPosition: "center" }}>
-            <I.check size={20} /><span>Portret yuklandi</span><small>almashtirish uchun bosing</small>
-          </div>
+          <><div className="ed-drop-ico"><I.check size={22} /></div>
+          <div className="ed-drop-t">Portret yuklandi</div>
+          <div className="ed-drop-s">almashtirish uchun bosing · jonli ko‘rinish yon tomonda</div></>
         ) : (
           <><div className="ed-drop-ico"><I.upload size={22} /></div>
           <div className="ed-drop-t">Portret rasmini yuklang</div>
@@ -252,12 +252,19 @@ function TabPortrait({ draft, set, setP, savedId, uploading, photoErr, photoVer,
 
 /* ── Tab: Voice & Language ── */
 function TabVoice({ draft, set }) {
+  // Til o'zgarganda joriy ovoz o'sha tilga mos bo'lmasa, birinchi mos ovozni tanlaymiz.
+  const pickLang = (code) => {
+    const cur = VOICES.find((v) => v.id === draft.voice);
+    if (cur && cur.langCode === code) { set({ language: code }); return; }
+    const first = VOICES.find((v) => v.langCode === code);
+    set(first ? { language: code, voice: first.id } : { language: code });
+  };
   return (
     <Section title="Ovoz va til" desc="TTS ovozini va asosiy tilni tanlang.">
       <Field label="Til">
         <div className="ed-lang">
           {LANGUAGES.map((l) => (
-            <button key={l.code} className={"ed-lang-btn" + (draft.language === l.code ? " on" : "")} onClick={() => set({ language: l.code })}>
+            <button key={l.code} className={"ed-lang-btn" + (draft.language === l.code ? " on" : "")} onClick={() => pickLang(l.code)}>
               <span className="ed-lang-flag">{l.flag}</span><span>{l.native}</span>
             </button>
           ))}
@@ -266,8 +273,7 @@ function TabVoice({ draft, set }) {
 
       <Field label="Ovoz">
         <div className="ed-voices">
-          {VOICES.filter((v) => !draft.language || v.lang === (LANGUAGES.find(l=>l.code===draft.language)||{}).native ? true : true)
-            .filter((v) => langMatch(v, draft.language)).map((v) => (
+          {VOICES.filter((v) => langMatch(v, draft.language)).map((v) => (
             <button key={v.id} className={"ed-voice" + (draft.voice === v.id ? " on" : "")} onClick={() => set({ voice: v.id })}>
               <div className="ed-voice-av" style={{ background: v.gender === "Ayol" || v.gender==="Friendly" ? "var(--brass)" : "var(--navy)" }}>{v.name[0]}</div>
               <div className="ed-voice-meta">
@@ -287,9 +293,8 @@ function TabVoice({ draft, set }) {
   );
 }
 function langMatch(v, code) {
-  const map = { uz: "O‘zbek", ru: "Русский", en: "English" };
-  if (!map[code]) return true;
-  return v.lang === map[code];
+  if (!code) return true;
+  return v.langCode === code;
 }
 
 /* ── Tab: Persona ── */
@@ -356,6 +361,7 @@ function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle,
           {idleProcessing && <span className="ed-idle-st">LivePortrait ishlamoqda, ~15–30s…</span>}
           {idleDone && !idleProcessing && <span className="ed-idle-st ok">Tayyor</span>}
         </div>
+        {idleProcessing && <div className="ed-progress"><div className="ed-progress-bar" /></div>}
       </Field>
 
       <Field label="2-qadam · MuseTalk artefakt" hint="Idle videodan lip-sync uchun latents/coords/mask tayyorlaydi. Idle qayta yaratilsa, buni ham qayta yarating.">
@@ -364,9 +370,10 @@ function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle,
             onClick={onBuildMusetalk} disabled={!canBuildMt}>
             {mtProcessing ? "Tayyorlanmoqda…" : mtDone ? "Qayta yaratish" : "Artefakt yaratish"}
           </Btn>
-          {mtProcessing && <span className="ed-idle-st">MuseTalk preprocessing, ~30–60s…</span>}
+          {mtProcessing && <span className="ed-idle-st">MuseTalk preprocessing, ~1–3 daqiqa…</span>}
           {mtDone && !mtProcessing && <span className="ed-idle-st ok">Tayyor — avatar lip-sync uchun shay</span>}
         </div>
+        {mtProcessing && <div className="ed-progress"><div className="ed-progress-bar" /></div>}
       </Field>
       {!savedId && (
         <div className="ed-note"><I.bolt size={14} /><span>Idle yaratish uchun avatarni <b>saqlang</b> va portret yuklang.</span></div>

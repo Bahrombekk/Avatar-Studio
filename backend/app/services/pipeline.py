@@ -19,7 +19,8 @@ def _avatar_params(avatar):
     """Avatar dict'idan pipeline parametrlarini ajratadi (None bo'lsa standart)."""
     if not avatar:
         return SYSTEM_PROMPT, 0.4, 90, 25, None
-    sp, mt = build_system_prompt(avatar.get("persona", ""), avatar.get("respLen", "short"))
+    sp, mt = build_system_prompt(avatar.get("persona", ""), avatar.get("respLen", "short"),
+                                 avatar.get("language", "uz"))
     temp = float(avatar.get("temperature", 0.4))
     fps = int(avatar.get("fps", 25)) or 25
     return sp, temp, mt, fps, avatar.get("id")

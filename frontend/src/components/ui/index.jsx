@@ -1,7 +1,7 @@
 /* Avatar Studio — umumiy UI primitivlari.
    Barcha vizual tokenlar applyTheme() o'rnatgan CSS-vars'dan keladi.
    Modul import qilinganida bir marta stylesheet inject qilinadi. */
-import { I } from "../../lib/icons.jsx";
+import { I } from "../../lib/icons";
 
 (function injectUIStyles() {
   if (document.getElementById("as-ui-styles")) return;

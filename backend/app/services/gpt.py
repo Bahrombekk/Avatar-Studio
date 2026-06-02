@@ -36,19 +36,38 @@ _RESP_LEN = {
 }
 
 
-def build_system_prompt(persona: str = "", resp_len: str = "short") -> tuple:
-    """Avatar personasidan to'liq system prompt + max_tokens quradi.
-    persona bo'sh bo'lsa — standart Madina prompti."""
+# Til kodi → (nomi, "har doim shu tilda javob ber" ko'rsatmasi).
+_LANG_NAMES = {"uz": "o'zbek", "ru": "rus", "en": "ingliz", "kk": "qozoq"}
+
+
+def _lang_rule(language: str) -> str:
+    """Avatar tili uchun majburiy til qoidasi. uz — standart (qo'shimcha shart yo'q)."""
+    code = (language or "uz").lower()
+    name = _LANG_NAMES.get(code)
+    if not name or code == "uz":
+        return ""
+    return (
+        f"\n\nMUHIM TIL QOIDASI: Foydalanuvchi qaysi tilda yozishidan qat'i nazar, "
+        f"HAR DOIM va FAQAT {name} tilida javob bering."
+    )
+
+
+def build_system_prompt(persona: str = "", resp_len: str = "short",
+                        language: str = "uz") -> tuple:
+    """Avatar personasi + tilidan to'liq system prompt + max_tokens quradi.
+    persona bo'sh bo'lsa — standart Madina prompti (+ til qoidasi)."""
     length_rule, max_tokens = _RESP_LEN.get(resp_len, _RESP_LEN["short"])
+    lang_rule = _lang_rule(language)
     base = (persona or "").strip()
     if not base:
-        return SYSTEM_PROMPT, 90
+        return SYSTEM_PROMPT + lang_rule, 90
     prompt = (
         f"{base}\n\n"
         f"JAVOB USLUBI (real-time video uchun muhim):\n"
         f"- {length_rule}\n"
         f"- Ro'yxat, misol yoki ortiqcha kirish so'zisiz, to'g'ridan-to'g'ri javob bering\n"
         f"- Foydalanuvchi tilida, do'stona ohangda"
+        f"{lang_rule}"
     )
     return prompt, max_tokens
 

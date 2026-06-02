@@ -1,10 +1,15 @@
 """TTS — matn → ovoz. Provayderlar: edge-TTS, Yandex SpeechKit v1 va v3."""
 import asyncio
 import os
+import re
 import subprocess
 import time
 
 import edge_tts
+
+# Yandex bitta so'rovda uzun matnni qabul qilmaydi ("Too long text"). Shu chegaradan
+# uzun bo'lsa, matnni jumlalarga bo'lib, har bo'lakni alohida sintez qilamiz.
+_YX_MAX_CHARS = 200
 
 from app.core.config import load_env_var
 
@@ -14,12 +19,26 @@ from app.core.config import load_env_var
 #   yandex_v3 → Yandex SpeechKit v3 REST (uz-UZ yulduz — faqat v3 da bor)
 _YX_SMOOTH = "dynaudnorm=f=250:g=7,treble=g=-2:f=7000"
 VOICES = {
+    # ── O'zbek ──
     "madina": {"provider": "edge",   "voice": "uz-UZ-MadinaNeural", "label": "Madina (edge)"},
     "sardor": {"provider": "edge",   "voice": "uz-UZ-SardorNeural", "label": "Sardor (edge)"},
     "nigora": {"provider": "yandex", "voice": "nigora", "lang": "uz-UZ",
                "label": "Nigora (Yandex)", "speed": 0.95, "smooth_af": _YX_SMOOTH},
     "yulduz": {"provider": "yandex_v3", "voice": "yulduz",
                "label": "Yulduz (Yandex)", "speed": 0.97, "smooth_af": _YX_SMOOTH},
+    # ── Rus ──
+    "ru_dmitry":   {"provider": "edge", "voice": "ru-RU-DmitryNeural",   "label": "Dmitriy (edge)"},
+    "ru_svetlana": {"provider": "edge", "voice": "ru-RU-SvetlanaNeural", "label": "Svetlana (edge)"},
+    "ru_filipp": {"provider": "yandex", "voice": "filipp", "lang": "ru-RU",
+                  "label": "Filipp (Yandex)", "speed": 1.0, "smooth_af": _YX_SMOOTH},
+    "ru_alena":  {"provider": "yandex", "voice": "alena", "lang": "ru-RU",
+                  "label": "Alyona (Yandex)", "speed": 1.0, "smooth_af": _YX_SMOOTH},
+    # ── Ingliz ──
+    "en_guy":  {"provider": "edge", "voice": "en-US-GuyNeural",  "label": "Guy (edge)"},
+    "en_aria": {"provider": "edge", "voice": "en-US-AriaNeural", "label": "Aria (edge)"},
+    # ── Qozoq ──
+    "kk_daulet": {"provider": "edge", "voice": "kk-KZ-DauletNeural", "label": "Daulet (edge)"},
+    "kk_aigul":  {"provider": "edge", "voice": "kk-KZ-AigulNeural",  "label": "Aigul (edge)"},
 }
 DEFAULT_VOICE = "madina"
 
@@ -42,6 +61,51 @@ def _trim_to_wav(tmp_audio: str, wav_path: str, extra_af: str = ""):
         "ffmpeg", "-y", "-i", tmp_audio, "-af", af,
         "-ar", "16000", "-ac", "1", wav_path,
     ], capture_output=True)
+
+
+def _parts_to_wav(parts: list, wav_path: str, extra_af: str = ""):
+    """Bir nechta audio bo'lakni ketma-ket ulab, kesilgan 16k mono WAV qiladi."""
+    if len(parts) == 1:
+        _trim_to_wav(parts[0], wav_path, extra_af)
+        return
+    af = _TRIM_AF + ("," + extra_af if extra_af else "")
+    inputs = []
+    for p in parts:
+        inputs += ["-i", p]
+    n = len(parts)
+    concat = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[c]"
+    fc = f"{concat};[c]{af}[out]"
+    subprocess.run([
+        "ffmpeg", "-y", *inputs, "-filter_complex", fc, "-map", "[out]",
+        "-ar", "16000", "-ac", "1", wav_path,
+    ], capture_output=True)
+
+
+def _split_text(text: str, max_chars: int = _YX_MAX_CHARS) -> list:
+    """Uzun matnni jumla chegaralarida (kerak bo'lsa so'z bo'yicha) bo'laklarga bo'ladi."""
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return [text] if text else []
+    sentences = re.split(r"(?<=[.!?…])\s+", text)
+    chunks, cur = [], ""
+    for s in sentences:
+        if len(s) > max_chars:                      # juda uzun jumla → so'z bo'yicha
+            if cur:
+                chunks.append(cur.strip())
+                cur = ""
+            for w in s.split():
+                if len(cur) + len(w) + 1 > max_chars and cur:
+                    chunks.append(cur.strip())
+                    cur = ""
+                cur += " " + w
+            continue
+        if len(cur) + len(s) + 1 > max_chars and cur:
+            chunks.append(cur.strip())
+            cur = ""
+        cur += " " + s
+    if cur.strip():
+        chunks.append(cur.strip())
+    return [c for c in chunks if c]
 
 
 async def _tts_edge(text: str, tmp_path: str, voice_id: str):
@@ -145,20 +209,30 @@ def _tts_yandex_v3(text: str, tmp_path: str, voice_id: str, speed: float = 1.0):
 
 def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE):
     spec = VOICES.get(voice) or VOICES[DEFAULT_VOICE]
-    if spec["provider"] == "edge":
+    provider = spec["provider"]
+    smooth = spec.get("smooth_af", "")
+    tmps = []
+    if provider == "edge":
+        # edge-TTS uzun matnni o'zi eplaydi — bo'lishga hojat yo'q.
         tmp = wav_path.replace(".wav", ".mp3")
         asyncio.run(_tts_edge(text, tmp, spec["voice"]))
-    elif spec["provider"] == "yandex":
-        tmp = wav_path.replace(".wav", ".ogg")
-        _tts_yandex(text, tmp, spec["voice"], spec.get("lang", "uz-UZ"),
-                    speed=spec.get("speed", 1.0))
-    elif spec["provider"] == "yandex_v3":
-        tmp = wav_path.replace(".wav", ".ogg")
-        _tts_yandex_v3(text, tmp, spec["voice"], speed=spec.get("speed", 1.0))
+        tmps = [tmp]
+    elif provider in ("yandex", "yandex_v3"):
+        # Yandex uzun matnni rad etadi → jumlalarga bo'lib, har bo'lakni sintez qilamiz.
+        chunks = _split_text(text) or [text]
+        for i, ch in enumerate(chunks):
+            p = wav_path.replace(".wav", f".p{i}.ogg")
+            if provider == "yandex":
+                _tts_yandex(ch, p, spec["voice"], spec.get("lang", "uz-UZ"),
+                            speed=spec.get("speed", 1.0))
+            else:
+                _tts_yandex_v3(ch, p, spec["voice"], speed=spec.get("speed", 1.0))
+            tmps.append(p)
     else:
-        raise RuntimeError(f"Noma'lum provayder: {spec['provider']}")
-    _trim_to_wav(tmp, wav_path, extra_af=spec.get("smooth_af", ""))
-    try:
-        os.remove(tmp)
-    except OSError:
-        pass
+        raise RuntimeError(f"Noma'lum provayder: {provider}")
+    _parts_to_wav(tmps, wav_path, extra_af=smooth)
+    for p in tmps:
+        try:
+            os.remove(p)
+        except OSError:
+            pass

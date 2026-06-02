@@ -1,11 +1,11 @@
 /* Avatar Studio — Analitika ekrani (latency, hajm, kesh, top so'rovlar).
    Yengil inline SVG/CSS grafiklar, tashqi kutubxonasiz. */
 import React from "react";
-import { I } from "../lib/icons.jsx";
-import { API } from "../api/client.js";
+import { I } from "../lib/icons";
+import { API } from "../api/client";
 import { Card, Badge, Btn, Portrait } from "../components/ui/index.jsx";
 import { Topbar } from "../components/AdminShell.jsx";
-import { ANALYTICS } from "../data/constants.js";
+import { ANALYTICS } from "../data/constants";
 
 export function Analytics({ avatars }) {
   const [A, setA] = React.useState(ANALYTICS);

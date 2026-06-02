@@ -18,10 +18,29 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import analytics, avatars, chat, system
 from app.core.paths import FRONTEND_DIST, STATIC_DIR
 from app.services.musetalk import warmup
+
+
+class SPAStaticFiles(StaticFiles):
+    """SPA fallback: mavjud bo'lmagan yo'l (react-router chuqur havolasi) → index.html.
+
+    Vite build qilingan SPA `createBrowserRouter` ishlatadi, shuning uchun
+    /studio/analytics yoki /studio/editor/new kabi yo'llar to'g'ridan-to'g'ri
+    ochilganda yoki sahifa yangilanganda server index.html'ni qaytarishi kerak.
+    Haqiqiy fayllar (assets/...) odatdagidek beriladi.
+    """
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
 
 
 @asynccontextmanager
@@ -53,9 +72,10 @@ def create_app() -> FastAPI:
 
     # Kesh videolari /videos/{scope}/{voice}/{file} route orqali beriladi (system.py).
 
-    # Avatar Studio admin UI (Vite build natijasi). html=True → SPA fallback.
+    # Avatar Studio admin UI (Vite build natijasi). SPAStaticFiles → react-router
+    # chuqur havolalari (/studio/analytics, /studio/editor/...) index.html'ga tushadi.
     if FRONTEND_DIST.exists():
-        app.mount("/studio", StaticFiles(directory=str(FRONTEND_DIST), html=True),
+        app.mount("/studio", SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
                   name="studio")
     else:
         print(f"[server] OGOHLANTIRISH: frontend build yo'q ({FRONTEND_DIST}). "

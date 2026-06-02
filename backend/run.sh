@@ -1,47 +1,59 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================================
-#  LP-MuseTalk Avatar backend — FastAPI (paket: app.main:app)
-#  Port 8100. Avatar: madina_lp
-#  Foydalanish: bash run.sh
+#  Avatar Studio backend — FastAPI (paket: app.main:app), port 8100.
+#  Portativ: barcha yo'llar shu skript joylashuviga nisbatan hisoblanadi.
+#  Avval o'rnatilgan bo'lishi kerak:  bash setup.sh  (loyiha ildizida)
+#  Ishga tushirish:  bash backend/run.sh
 # ============================================================
+set -euo pipefail
 
-# BASE = backend/ (shu skript joylashgan papka). MT_DIR = bundle ichidagi modellar.
-BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MT_DIR="${MT_DIR:-$(cd "$BASE/../models/MuseTalk" 2>/dev/null && pwd)}"
-CONDA_ROOT="${CONDA_ROOT:-/home/user/miniconda3}"
-PYTHON="$CONDA_ROOT/envs/musetalk/bin/python"
-export MT_DIR
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # backend/
+ROOT="$(cd "$BASE/.." && pwd)"                          # loyiha ildizi
+ENV_DIR="${AVATAR_ENV_DIR:-$ROOT/envs/avatar}"          # bundle qilingan conda muhiti
+PYTHON="$ENV_DIR/bin/python"
 
-source $CONDA_ROOT/etc/profile.d/conda.sh
-conda deactivate 2>/dev/null
-
-# .env dan OPENAI_API_KEY (+ Yandex)
-ENV_FILE="$BASE/.env"
-if [ -f "$ENV_FILE" ]; then
-    export $(grep -v '^#' "$ENV_FILE" | xargs)
-fi
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "XATO: OPENAI_API_KEY topilmadi! $ENV_FILE ga yozing."
+if [ ! -x "$PYTHON" ]; then
+    echo "XATO: Python muhiti topilmadi: $PYTHON"
+    echo "      Avval loyiha ildizida o'rnating:  bash setup.sh"
     exit 1
 fi
 
-# MuseTalk import uchun PYTHONPATH
-export PYTHONPATH="$MT_DIR:${PYTHONPATH}"
+# ── Modellar (loyiha ichida) ──
+export MT_DIR="${MT_DIR:-$ROOT/models/MuseTalk}"
+export LP_DIR="${LP_DIR:-$ROOT/models/LivePortrait}"
+export PYTHONPATH="$MT_DIR:${PYTHONPATH:-}"
 
-# CUDA library yo'llari
-NVIDIA_LIBS="$CONDA_ROOT/envs/musetalk/lib/python3.10/site-packages/nvidia"
-if [ -d "$NVIDIA_LIBS" ]; then
-    export LD_LIBRARY_PATH="$NVIDIA_LIBS/cudnn/lib:$NVIDIA_LIBS/cublas/lib:$NVIDIA_LIBS/cuda_runtime/lib:$NVIDIA_LIBS/cufft/lib:$NVIDIA_LIBS/curand/lib:$NVIDIA_LIBS/cusolver/lib:$NVIDIA_LIBS/cusparse/lib:$NVIDIA_LIBS/nvjitlink/lib:${LD_LIBRARY_PATH}"
+# ── CUDA kutubxonalari (bundle qilingan muhit ichidan, versiyadan mustaqil) ──
+NVIDIA_ROOT=$(echo "$ENV_DIR"/lib/python*/site-packages/nvidia 2>/dev/null | awk '{print $1}')
+if [ -d "$NVIDIA_ROOT" ]; then
+    for _d in "$NVIDIA_ROOT"/*/lib; do
+        [ -d "$_d" ] && export LD_LIBRARY_PATH="$_d:${LD_LIBRARY_PATH:-}"
+    done
+fi
+export LD_LIBRARY_PATH="$ENV_DIR/lib:${LD_LIBRARY_PATH:-}"
+
+# ── ffmpeg (kod oddiy "ffmpeg" deb chaqiradi) — env bin PATH boshiga ──
+export PATH="$ENV_DIR/bin:${PATH:-}"
+
+# ── .env dan OPENAI_API_KEY (config.py ham o'qiydi; bo'lmasa boot uchun dummy) ──
+ENV_FILE="$BASE/.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a; . "$ENV_FILE"; set +a
+fi
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+    echo "OGOHLANTIRISH: OPENAI_API_KEY yo'q — server ishga tushadi, lekin chat ishlamaydi."
+    echo "                Chat uchun $ENV_FILE ichiga OPENAI_API_KEY yozing."
+    export OPENAI_API_KEY="sk-dummy-for-boot"
 fi
 
+HOST="${HOST:-0.0.0.0}"
+PORT="${PORT:-8100}"
 echo "============================================"
-echo "  LP-MuseTalk Avatar backend"
-echo "  URL    : http://localhost:8100"
-echo "  Studio : http://localhost:8100/studio"
-echo "  Env    : musetalk | Avatar: madina_lp"
+echo "  Avatar Studio backend"
+echo "  Muhit : $ENV_DIR"
+echo "  URL    : http://localhost:$PORT"
+echo "  Studio : http://localhost:$PORT/studio"
 echo "============================================"
 
-# app-dir = backend/ (app.main:app shu yerdan topiladi).
-# cwd MuseTalk relative-path uchun model yuklashda os.chdir(MT_DIR) bilan beriladi.
 cd "$BASE"
-$PYTHON -m uvicorn app.main:app --host 0.0.0.0 --port 8100 --app-dir "$BASE"
+exec "$PYTHON" -m uvicorn app.main:app --host "$HOST" --port "$PORT" --app-dir "$BASE"

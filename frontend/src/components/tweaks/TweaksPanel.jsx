@@ -217,6 +217,7 @@ export function TweaksPanel({ title = 'Tweaks', children }) {
 }
 
 // ── Layout helpers ──────────────────────────────────────────────────────────
+/** @param {{ label?: any, children?: any }} props */
 export function TweakSection({ label, children }) {
   return (
     <>

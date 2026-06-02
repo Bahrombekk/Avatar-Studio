@@ -1,32 +1,35 @@
 {
   "id": "sardor_bank",
   "name": "Sardor",
-  "role": "Bank konsultanti",
-  "brand": "Milliy Bank",
-  "brandShort": "NBU",
-  "status": "draft",
+  "role": "Virtual yordamchi",
+  "brand": "O‘zbekiston Temir Yo‘llari",
+  "brandShort": "UTY",
+  "status": "live",
   "accent": "#1F8A5B",
   "portrait": {
     "from": "#16624A",
     "to": "#0C3A2C",
     "initials": "S"
   },
-  "voice": "sardor",
-  "language": "uz",
+  "voice": "ru_dmitry",
+  "language": "ru",
   "extraMargin": 12,
   "fps": 25,
   "blinkRate": 5,
   "headMotion": 0.3,
-  "persona": "Siz Milliy Bank konsultantisiz. Rasmiy va ishonchli ohangda, kartalar, kreditlar va omonatlar bo‘yicha qisqa javob bering.",
-  "respLen": "short",
+  "persona": "O'zbekiston temir yo'llariga doir malumot berasan faqat to'lliqroq so'rasa to'lliqroq malumot berasan",
+  "respLen": "medium",
   "temperature": 0.4,
   "speechRate": 0,
-  "hasPhoto": false,
-  "real": false,
-  "suggestions": [
-    "Karta ochish",
-    "Kredit shartlari",
-    "Valyuta kursi"
-  ],
-  "updated": "Hozir"
+  "hasPhoto": true,
+  "real": true,
+  "suggestions": [],
+  "updated": "Hozir",
+  "build": {
+    "state": "done",
+    "stage": "musetalk_prep",
+    "error": null,
+    "updated": "2026-06-02T08:44:13.926951+00:00"
+  },
+  "hasArtifact": true
 }

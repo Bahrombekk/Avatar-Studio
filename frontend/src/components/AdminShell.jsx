@@ -1,6 +1,6 @@
 /* Avatar Studio — Admin chrome (sidebar + topbar) va Dashboard. */
 import { useState } from "react";
-import { I } from "../lib/icons.jsx";
+import { I } from "../lib/icons";
 import { Btn, Card, Segmented, Portrait, StatusBadge } from "./ui/index.jsx";
 
 const NAV = [
@@ -54,6 +54,7 @@ export function Sidebar({ route, go, flags }) {
   );
 }
 
+/** @param {{ title?: any, sub?: any, actions?: any }} props */
 export function Topbar({ title, sub, actions }) {
   return (
     <header className="tb">
@@ -133,7 +134,14 @@ function AvatarCard({ a, go }) {
     <Card className="av-card" onClick={() => go({ screen: "editor", id: a.id })}>
       <div className="av-card-top">
         <Portrait avatar={a} size={52} radius="10px" live={a.status === "live"} />
-        <StatusBadge status={a.status} />
+        <div className="av-card-top-r">
+          <StatusBadge status={a.status} />
+          <span className={"av-card-model" + (a.real ? " on" : "")}
+            title={a.real ? "Avatar modeli tayyor (o‘z yuzi bilan lip-sync)" : "Model yo‘q — Idle + Artefakt yarating"}>
+            {a.real ? <I.check size={11} /> : <I.bolt size={11} />}
+            {a.real ? "Model tayyor" : "Model yo‘q"}
+          </span>
+        </div>
       </div>
       <div className="av-card-name">{a.name}</div>
       <div className="av-card-role">{a.role}</div>

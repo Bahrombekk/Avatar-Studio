@@ -36,6 +36,27 @@ models/MuseTalk/models/
 models/MuseTalk/results/
 models/LivePortrait/pretrained_weights/
 
+# ── Bundle qilingan conda muhiti (13 GB — GitHub'ga sig'maydi; wheels qoladi) ──
+envs/avatar/
+envs/*.tar
+envs/*.tar.gz
+
+# ── insightface buffalo_l onnx (166 MB w600k — GitHub limitidan oshadi) ──
+backend/checkpoints/
+
+# ── Per-avatar generatsiya artefaktlari (latents/mask/full_imgs/idle — katta, qayta yasaladi) ──
+backend/data/avatars/*/artifact/
+backend/data/avatars/*/idle.mp4
+backend/data/avatars/*/source/
+backend/data/avatars/*/vid_output/
+
+# ── Og'ir binar formatlar (xavfsizlik to'ri) ──
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.mp4
+
 # ── OS / IDE ──
 .DS_Store
 Thumbs.db

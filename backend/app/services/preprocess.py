@@ -20,9 +20,13 @@ import json
 import os
 import pickle
 import shutil
+import subprocess
+import sys
 
-from app.core.paths import avatar_artifact_dir, avatar_idle_file
+from app.core.paths import BACKEND_DIR, MT_DIR, avatar_artifact_dir, avatar_idle_file
 from app.services import avatar_store, musetalk
+
+PREP_TIMEOUT_SEC = 1800   # 30 daqiqa — preprocessing bundan oshmasligi kerak
 
 # v15: bbox_shift har doim 0; faqat extra_margin va parsing_mode ta'sir qiladi.
 BBOX_SHIFT = 0
@@ -150,3 +154,42 @@ def preprocess_avatar(avatar_id: str) -> str:
     # Avatar endi o'z yuzi bilan lip-sync qila oladi → real/live.
     avatar_store.set_ready(avatar_id, True)
     return str(art)
+
+
+def preprocess_avatar_subprocess(avatar_id: str) -> str:
+    """preprocess_avatar ni ALOHIDA jarayonda (subprocess) ishga tushiradi.
+
+    Sabab: jobs.start() fon thread'ida ishlaydi; MuseTalk preprocessing'dagi PIL/
+    FaceParsing asosiy bo'lmagan thread'da 'ImagingCore' xatosini beradi. Toza
+    jarayonning asosiy thread'ida ishonchli ishlaydi (idle generatsiya bilan bir xil
+    uslub). Artefakt va ready holatini bola jarayon avatar.json'ga yozadi.
+    """
+    av = avatar_store.get_avatar(avatar_id)
+    if av is None:
+        raise RuntimeError("Avatar topilmadi")
+    if not avatar_idle_file(avatar_id).is_file():
+        raise RuntimeError("Idle video topilmadi — avval idle yarating")
+
+    env = os.environ.copy()
+    # Bola jarayon `app` (cwd=BACKEND_DIR) va MuseTalk (MT_DIR) modullarini topsin.
+    env["PYTHONPATH"] = os.pathsep.join([str(MT_DIR), str(BACKEND_DIR)])
+    cmd = [sys.executable, "-m", "app.services.preprocess", avatar_id]
+    proc = subprocess.run(cmd, cwd=str(BACKEND_DIR), capture_output=True,
+                          text=True, timeout=PREP_TIMEOUT_SEC, env=env)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-800:]
+        raise RuntimeError(f"MuseTalk preprocessing xato (kod {proc.returncode}): {tail}")
+
+    art = avatar_artifact_dir(avatar_id)
+    if not (art.is_dir() and (art / "latents.pt").is_file()):
+        raise RuntimeError("Artefakt yaratilmadi (latents.pt yo'q)")
+    return str(art)
+
+
+if __name__ == "__main__":
+    # Subprocess kirish nuqtasi: python -m app.services.preprocess <avatar_id>
+    if len(sys.argv) < 2:
+        print("Foydalanish: python -m app.services.preprocess <avatar_id>", file=sys.stderr)
+        sys.exit(2)
+    preprocess_avatar(sys.argv[1])
+    print("PREPROCESS-OK")
