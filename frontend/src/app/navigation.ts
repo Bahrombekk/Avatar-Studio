@@ -15,6 +15,8 @@ export function screenToPath(route: Route): string {
       return "/";
     case "editor":
       return "/editor/" + (route.id || "new");
+    case "realtime":
+      return "/realtime";
     case "analytics":
       return "/analytics";
     case "conversations":

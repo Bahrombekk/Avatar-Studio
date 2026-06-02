@@ -33,6 +33,11 @@ _RESP_LEN = {
                "Har jumla 14 so'zdan oshmasin.", 90),
     "medium": ("Qisqa-o'rta javob: eng ko'pi 3-4 jumla.", 160),
     "long":   ("Batafsilroq javob bering, lekin ortiqcha cho'zmang: eng ko'pi 6 jumla.", 280),
+    # Real-time ovozli suhbat uchun: javob TUGALLANGAN bo'lsin (kesilmasin),
+    # markdown/ro'yxatsiz (ovoz uchun), ixcham. Token budjeti kengroq (kesilmaslik uchun).
+    "voice":  ("To'liq va TUGALLANGAN, lekin ixcham suhbat javobi ber (2-5 jumla). "
+               "Markdown, yulduzcha (*) yoki raqamli ro'yxat ISHLATMA — faqat oddiy, "
+               "og'zaki gaplar. Gapni o'rtada uzma, doim tugat.", 360),
 }
 
 
@@ -60,7 +65,9 @@ def build_system_prompt(persona: str = "", resp_len: str = "short",
     lang_rule = _lang_rule(language)
     base = (persona or "").strip()
     if not base:
-        return SYSTEM_PROMPT + lang_rule, 90
+        # Bo'sh persona: standart Madina prompti + tanlangan uzunlik qoidasi + til.
+        # (Ilgari max_tokens 90 ga QOTIRILGAN edi — javob chala kesilardi; tuzatildi.)
+        return f"{SYSTEM_PROMPT}\n- {length_rule}{lang_rule}", max_tokens
     prompt = (
         f"{base}\n\n"
         f"JAVOB USLUBI (real-time video uchun muhim):\n"

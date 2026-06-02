@@ -218,16 +218,26 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE):
         asyncio.run(_tts_edge(text, tmp, spec["voice"]))
         tmps = [tmp]
     elif provider in ("yandex", "yandex_v3"):
-        # Yandex uzun matnni rad etadi → jumlalarga bo'lib, har bo'lakni sintez qilamiz.
+        # Yandex uzun matnni rad etadi → jumlalarga bo'lamiz. Bo'laklarni KETMA-KET
+        # emas, PARALLEL sintez qilamiz (kechikish sum → max) — uzun javobda
+        # TTS sezilarli tezlashadi. Tartib saqlanadi.
+        from concurrent.futures import ThreadPoolExecutor
         chunks = _split_text(text) or [text]
-        for i, ch in enumerate(chunks):
-            p = wav_path.replace(".wav", f".p{i}.ogg")
+        tmps = [wav_path.replace(".wav", f".p{i}.ogg") for i in range(len(chunks))]
+
+        def _synth(i_ch):
+            i, ch = i_ch
             if provider == "yandex":
-                _tts_yandex(ch, p, spec["voice"], spec.get("lang", "uz-UZ"),
+                _tts_yandex(ch, tmps[i], spec["voice"], spec.get("lang", "uz-UZ"),
                             speed=spec.get("speed", 1.0))
             else:
-                _tts_yandex_v3(ch, p, spec["voice"], speed=spec.get("speed", 1.0))
-            tmps.append(p)
+                _tts_yandex_v3(ch, tmps[i], spec["voice"], speed=spec.get("speed", 1.0))
+
+        if len(chunks) == 1:
+            _synth((0, chunks[0]))
+        else:
+            with ThreadPoolExecutor(max_workers=min(6, len(chunks))) as ex:
+                list(ex.map(_synth, list(enumerate(chunks))))
     else:
         raise RuntimeError(f"Noma'lum provayder: {provider}")
     _parts_to_wav(tmps, wav_path, extra_af=smooth)

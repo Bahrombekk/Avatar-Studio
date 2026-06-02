@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import analytics, avatars, chat, system
 from app.core.paths import FRONTEND_DIST, STATIC_DIR
+from app.realtime.ws import router as realtime_router
 from app.services.musetalk import warmup
 
 
@@ -62,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(avatars.router)
     app.include_router(analytics.router)
     app.include_router(system.router)
+    app.include_router(realtime_router)   # /api/realtime/ws (alohida modul)
 
     @app.get("/", response_class=HTMLResponse)
     def index():

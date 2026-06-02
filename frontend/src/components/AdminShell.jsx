@@ -5,6 +5,7 @@ import { Btn, Card, Segmented, Portrait, StatusBadge } from "./ui/index.jsx";
 
 const NAV = [
   { id: "dashboard", label: "Avatarlar", icon: "grid" },
+  { id: "realtime", label: "Real-time", icon: "mic" },
   { id: "analytics", label: "Analitika", icon: "chart" },
   { id: "conversations", label: "Suhbatlar", icon: "chat", flag: "conversations" },
   { id: "users", label: "Foydalanuvchilar", icon: "users", flag: "users" },

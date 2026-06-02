@@ -9,6 +9,7 @@ import { ConversationsPage } from "@/pages/ConversationsPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { PreviewPage } from "@/pages/PreviewPage";
+import { RealtimePage } from "@/pages/RealtimePage";
 
 export const router = createBrowserRouter(
   [
@@ -21,6 +22,7 @@ export const router = createBrowserRouter(
         { index: true, element: <DashboardPage /> },
         { path: "analytics", element: <AnalyticsPage /> },
         { path: "editor/:id", element: <EditorPage /> },
+        { path: "realtime", element: <RealtimePage /> },
         { path: "conversations", element: <ConversationsPage /> },
         { path: "users", element: <UsersPage /> },
         { path: "settings", element: <SettingsPage /> },
