@@ -1,12 +1,16 @@
-"""Avatar CRUD endpointlari (/api/avatars)."""
-from fastapi import APIRouter, File, HTTPException, UploadFile
+"""Avatar CRUD endpointlari (/api/avatars). Yozish/qurish — admin himoyasi bilan."""
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from app.api.deps import require_admin
 from app.core.paths import avatar_idle_file, avatar_portrait_file
 from app.schemas.avatar import AvatarCreate, AvatarUpdate
 from app.services import avatar_store, face, idle, jobs, preprocess
 
 router = APIRouter(prefix="/api/avatars", tags=["avatars"])
+
+# Admin himoyasi (yozish/qurish endpointlari uchun). GET (o'qish) public qoladi.
+Admin = Depends(require_admin)
 
 # Yuklash chegaralari.
 MAX_PHOTO_BYTES = 12 * 1024 * 1024          # 12 MB
@@ -27,13 +31,13 @@ def get_avatar(avatar_id: str):
 
 
 @router.post("")
-def create_avatar(data: AvatarCreate):
+def create_avatar(data: AvatarCreate, _: bool = Admin):
     # by_alias → Portrait.from_ "from" bo'lib yoziladi (frontend kutgan shakl).
     return avatar_store.create_avatar(data.model_dump(by_alias=True))
 
 
 @router.put("/{avatar_id}")
-def update_avatar(avatar_id: str, data: AvatarUpdate):
+def update_avatar(avatar_id: str, data: AvatarUpdate, _: bool = Admin):
     # exclude_unset → faqat klient yuborgan maydonlar yangilanadi (qisman).
     patch = data.model_dump(by_alias=True, exclude_unset=True)
     a = avatar_store.update_avatar(avatar_id, patch)
@@ -43,14 +47,14 @@ def update_avatar(avatar_id: str, data: AvatarUpdate):
 
 
 @router.delete("/{avatar_id}")
-def delete_avatar(avatar_id: str):
+def delete_avatar(avatar_id: str, _: bool = Admin):
     if not avatar_store.delete_avatar(avatar_id):
         raise HTTPException(404, "Avatar topilmadi")
     return {"deleted": avatar_id}
 
 
 @router.post("/{avatar_id}/photo")
-async def upload_photo(avatar_id: str, file: UploadFile = File(...)):
+async def upload_photo(avatar_id: str, file: UploadFile = File(...), _: bool = Admin):
     """Portret rasmini yuklaydi, yuzni tekshiradi va source/portrait.jpg ga saqlaydi.
 
     Avatar avval mavjud bo'lishi shart (saqlangan bo'lishi kerak). Yuz validatsiyasi
@@ -92,7 +96,7 @@ def get_photo(avatar_id: str):
 
 
 @router.post("/{avatar_id}/build-idle")
-def build_idle(avatar_id: str):
+def build_idle(avatar_id: str, _: bool = Admin):
     """Idle (blink) video generatsiyani fon job sifatida boshlaydi.
 
     Portret yuklangan bo'lishi shart. Holatni `GET /{id}` build maydonidan kuzating.
@@ -112,7 +116,7 @@ def build_idle(avatar_id: str):
 
 
 @router.post("/{avatar_id}/build-musetalk")
-def build_musetalk(avatar_id: str):
+def build_musetalk(avatar_id: str, _: bool = Admin):
     """Idle videodan MuseTalk artefakt (latents/coords/mask) generatsiyasini boshlaydi.
 
     Idle video oldindan yaratilgan bo'lishi shart. Holatni `GET /{id}/build`

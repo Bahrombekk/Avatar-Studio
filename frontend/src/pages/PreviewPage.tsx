@@ -20,8 +20,8 @@ export function PreviewPage() {
   return (
     <>
       <div className="pv-wrap">
-        <button className="pv-back" onClick={() => navigate("/")}>
-          <I.back size={15} /> Studiyaga qaytish
+        <button className="pv-back" onClick={() => navigate("/admin")}>
+          <I.back size={15} /> Panelga qaytish
         </button>
         <div className="pv-stage">
           {previewAvatar ? (

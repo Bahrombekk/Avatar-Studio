@@ -118,8 +118,35 @@
 .ed-swatch:hover{ transform:scale(1.06); }
 .ed-swatch.on{ border-color:var(--ink); box-shadow:0 0 0 3px var(--bg), 0 0 0 4px var(--brass); }
 
+/* ── Admin login sahifasi ── */
+.login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); }
+.login-card{ display:flex; flex-direction:column; align-items:center; gap:12px; width:340px; max-width:90vw;
+  padding:36px 30px; background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow); }
+.login-logo{ width:54px; height:54px; border-radius:14px; background:var(--navy); color:#fff;
+  display:flex; align-items:center; justify-content:center; }
+.login-title{ font-family:var(--font-display); font-size:22px; color:var(--ink); }
+.login-sub{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.4px; color:var(--ink-3);
+  text-transform:uppercase; text-align:center; }
+.login-input{ width:100%; margin-top:6px; }
+.login-err{ color:var(--err, #C0392B); font-size:12.5px; display:flex; align-items:center; gap:5px; }
+.login-btn{ width:100%; padding:13px; border:0; border-radius:var(--radius); background:var(--navy); color:#fff;
+  font-family:var(--font-body); font-size:15px; cursor:pointer; transition:.15s; }
+.login-btn:hover{ filter:brightness(1.08); }
+.login-btn:disabled{ opacity:.5; cursor:not-allowed; }
+.login-back{ font-family:var(--font-mono); font-size:10px; letter-spacing:.4px; color:var(--ink-3);
+  text-decoration:none; text-transform:uppercase; }
+.login-back:hover{ color:var(--brass); }
+
+.sb-logout{ margin-left:auto; width:30px; height:30px; border-radius:8px; border:1px solid var(--line);
+  background:transparent; color:var(--ink-3); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.sb-logout:hover{ color:var(--err, #C0392B); border-color:var(--err, #C0392B); }
+
+.rt-brand{ display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:18px; color:var(--ink); }
+.rt-brand span{ color:var(--ink-3); font-size:14px; }
+
 /* ── Real-time ovozli suhbat sahifasi ── */
-.rt-wrap{ display:flex; flex-direction:column; height:100%; min-height:0; padding:22px 26px; gap:18px; }
+.rt-wrap{ display:flex; flex-direction:column; height:100vh; min-height:0; padding:22px 26px; gap:18px; }
 .rt-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .rt-top-r{ display:flex; align-items:center; gap:10px; }
 .rt-dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-3); }

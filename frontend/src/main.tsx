@@ -6,6 +6,7 @@ import { router } from "./app/router";
 import { ToastProvider } from "./context/ToastContext";
 import { TweaksProvider } from "./context/TweaksContext";
 import { AvatarsProvider } from "./context/AvatarsContext";
+import { AuthProvider } from "./context/AuthContext";
 import "./styles/styles.css";
 import "./styles/admin.css";
 
@@ -14,11 +15,13 @@ if (rootEl) {
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
       <ToastProvider>
-        <TweaksProvider>
-          <AvatarsProvider>
-            <RouterProvider router={router} />
-          </AvatarsProvider>
-        </TweaksProvider>
+        <AuthProvider>
+          <TweaksProvider>
+            <AvatarsProvider>
+              <RouterProvider router={router} />
+            </AvatarsProvider>
+          </TweaksProvider>
+        </AuthProvider>
       </ToastProvider>
     </React.StrictMode>,
   );

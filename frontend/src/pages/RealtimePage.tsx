@@ -3,7 +3,6 @@
    oqadi → to'xtaganda matn deyarli tayyor. Avatar idle loopda turadi; javob video
    generatsiya paytida progressive oqadi. Eski chat logikasiga tegmaydi. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { I } from "@/lib/icons";
 import { API } from "@/api/client";
 import { openRealtimeWS } from "@/api/realtime";
@@ -13,7 +12,6 @@ import type { Avatar } from "@/types/avatar";
 type Turn = { role: "user" | "avatar"; text: string };
 
 export function RealtimePage() {
-  const navigate = useNavigate();
   const { avatars } = useAvatars();
   const ready = useMemo(() => avatars.filter((a) => a.real), [avatars]);
   const [avatarId, setAvatarId] = useState<string>("");
@@ -194,9 +192,7 @@ export function RealtimePage() {
   return (
     <div className="rt-wrap">
       <div className="rt-top">
-        <button className="pv-back" onClick={() => navigate("/")}>
-          <I.back size={15} /> Studiyaga qaytish
-        </button>
+        <div className="rt-brand"><I.layers size={18} /> Avatar Studio · <span>Jonli suhbat</span></div>
         <div className="rt-top-r">
           <span className={"rt-dot" + (connected ? " on" : "")} />
           <span className="rt-conn">{connected ? "Ulangan" : "Ulanmoqda…"}</span>

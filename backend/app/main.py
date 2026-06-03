@@ -1,15 +1,16 @@
 """FastAPI ilova fabrikasi — LP-MuseTalk avatar serveri (port 8100).
 
-  GET  /            -> chat UI (static/index.html)
-  GET  /idle.jpg    -> idle rasm
-  GET  /voices      -> ovozlar reestri
-  POST /chat        -> {text, video, timing}
-  POST /chat-stream -> SSE: text -> tts_done -> video -> done
-  /api/avatars      -> avatar CRUD
-  /api/analytics    -> analitika
-  /studio           -> Avatar Studio admin (Vite build)
-  /health           -> holat
+Public (loginsiz):
+  /                     -> SPA: foydalanuvchi real-time ovozli suhbat
+  /api/realtime/ws      -> real-time WebSocket (streaming STT → video)
+  GET /api/avatars      -> avatar ro'yxati (o'qish)
+  /voices, /idle.jpg, /health, /videos/...
 
+Admin (Authorization: Bearer <token>, /api/auth/login orqali):
+  POST/PUT/DELETE /api/avatars... -> CRUD, photo, build-idle, build-musetalk
+  GET /api/analytics, POST /cache/clear
+
+SPA endi ROOT '/' da: '/' = user, '/admin/*' = panel (login bilan).
 Ishga tushirish: bash run.sh
 """
 import threading
@@ -20,10 +21,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routes import analytics, avatars, chat, system
+from app.api.routes import analytics, auth, avatars, chat, system
 from app.core.paths import FRONTEND_DIST, STATIC_DIR
 from app.realtime.ws import router as realtime_router
-from app.services.musetalk import warmup
+from app.services.musetalk import preload_artifact, warmup
 
 
 class SPAStaticFiles(StaticFiles):
@@ -50,6 +51,15 @@ async def lifespan(app: FastAPI):
     def _bg():
         try:
             warmup()
+            # Real avatarlar artefaktini (200 kadr/mask) keshга oldindan yuklaymiz —
+            # foydalanuvchining BIRINCHI savoli sekin bo'lmasligi uchun.
+            try:
+                from app.services import avatar_store
+                for av in avatar_store.list_avatars():
+                    if av.get("real"):
+                        preload_artifact(av["id"])
+            except Exception as e:
+                print(f"[server] artefakt preload xato: {e}")
         except Exception as e:
             print(f"[server] warmup xato: {e}")
     threading.Thread(target=_bg, daemon=True).start()
@@ -59,26 +69,19 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Madina Avatar (LP-MuseTalk)", lifespan=lifespan)
 
+    app.include_router(auth.router)        # /api/auth/login, /check
     app.include_router(chat.router)
     app.include_router(avatars.router)
     app.include_router(analytics.router)
     app.include_router(system.router)
-    app.include_router(realtime_router)   # /api/realtime/ws (alohida modul)
+    app.include_router(realtime_router)    # /api/realtime/ws (alohida modul)
 
-    @app.get("/", response_class=HTMLResponse)
-    def index():
-        f = STATIC_DIR / "index.html"
-        if not f.exists():
-            raise HTTPException(404, "index.html topilmadi")
-        return HTMLResponse(f.read_text(encoding="utf-8"))
-
-    # Kesh videolari /videos/{scope}/{voice}/{file} route orqali beriladi (system.py).
-
-    # Avatar Studio admin UI (Vite build natijasi). SPAStaticFiles → react-router
-    # chuqur havolalari (/studio/analytics, /studio/editor/...) index.html'ga tushadi.
+    # SPA — endi ROOT '/' da: '/' = public real-time (user), '/admin/*' = panel (login).
+    # API routerlari yuqorida ro'yxatdan o'tgani uchun mount ulardan keyin tekshiriladi.
+    # SPAStaticFiles → react-router chuqur havolalari index.html'ga tushadi.
     if FRONTEND_DIST.exists():
-        app.mount("/studio", SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
-                  name="studio")
+        app.mount("/", SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
+                  name="spa")
     else:
         print(f"[server] OGOHLANTIRISH: frontend build yo'q ({FRONTEND_DIST}). "
               f"`cd frontend && npm install && npm run build` ishga tushiring.")

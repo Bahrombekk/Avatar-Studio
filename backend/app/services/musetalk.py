@@ -131,6 +131,7 @@ def _get_artifact(avatar_id):
 
     import torch
     import cv2
+    from concurrent.futures import ThreadPoolExecutor
 
     t1 = time.time()
     latents = torch.load(str(paths["latents"]))
@@ -138,8 +139,13 @@ def _get_artifact(avatar_id):
         coords = pickle.load(f)
     with open(paths["mask_coords"], "rb") as f:
         mask_coords = pickle.load(f)
-    frames = [cv2.imread(p) for p in sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))]
-    masks = [cv2.imread(p) for p in sorted(glob.glob(str(paths["mask_dir"] / "*.png")))]
+    # 200 kadr + 200 mask PNG — PARALLEL o'qiymiz (DrvFs'da ketma-ket o'qish sekin;
+    # cv2.imread GIL'ni bo'shatadi → parallel I/O birinchi yuklashni keskin tezlashtiradi).
+    img_paths = sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))
+    mask_paths = sorted(glob.glob(str(paths["mask_dir"] / "*.png")))
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        frames = list(ex.map(cv2.imread, img_paths))
+        masks = list(ex.map(cv2.imread, mask_paths))
 
     art = {"latents": latents, "coords": coords, "mask_coords": mask_coords,
            "frames": frames, "masks": masks}
@@ -170,6 +176,7 @@ def warmup():
         "-t", "0.5", "-ar", "16000", "-ac", "1", tmp.name,
     ], capture_output=True)
     t = time.time()
+    # Inference kernellarini isitamiz (cudnn autotune — batch va stream bir xil kernellar).
     musetalk_infer(tmp.name, str(VID_OUT_DIR / "_warmup.mp4"))
     for p in (tmp.name, str(VID_OUT_DIR / "_warmup.mp4")):
         try:
@@ -177,6 +184,21 @@ def warmup():
         except Exception:
             pass
     print(f"[LP-MuseTalk] Warmup: {time.time()-t:.1f}s")
+
+
+def preload_artifact(avatar_id: str) -> bool:
+    """Avatar artefaktini (200 kadr/mask PNG) keshга oldindan yuklaydi.
+
+    Birinchi so'rov sekin bo'lmasligi uchun startupda chaqiriladi — aks holda
+    foydalanuvchining BIRINCHI savolida artefakt diskdan (sekin DrvFs) o'qiladi.
+    """
+    try:
+        ensure_loaded()
+        _get_artifact(avatar_id)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[LP-MuseTalk] preload '{avatar_id}' ogohlantirish: {e}")
+        return False
 
 
 def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None) -> bool:
@@ -327,8 +349,9 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
         "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
         "-i", wav_path,
         "-map", "0:v", "-map", "1:a",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
-        "-g", str(fps), "-crf", "20", "-c:a", "aac", "-shortest",
+        # Sifat: crf 18 + veryfast (ultrafast'dan aniqroq), tezlikka deyarli ta'sir yo'q.
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+        "-g", str(fps), "-crf", "18", "-c:a", "aac", "-b:a", "128k", "-shortest",
         "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
     ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 

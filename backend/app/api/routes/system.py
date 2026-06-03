@@ -1,9 +1,10 @@
 """Tizim endpointlari — ovozlar reestri, idle rasm, health, cache admin, video."""
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from app.api.deps import require_admin
 from app.core.config import load_env_var
 from app.core.paths import AVATAR_ID, AVATARS_DIR, IDLE_IMAGE, voice_videos_dir
 from app.services import musetalk
@@ -49,7 +50,7 @@ def cache_stats():
 
 
 @router.post("/cache/clear")
-def cache_clear():
+def cache_clear(_: bool = Depends(require_admin)):
     return {"cleared": clear_all()}
 
 

@@ -3,8 +3,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 
-// Backend (FastAPI) /studio ostida build natijasini xizmat qiladi → base '/studio/'.
-// Dev rejimida (5173) API so'rovlari port 8100 ga proksilanadi.
+// Backend (FastAPI) endi ROOT '/' da xizmat qiladi → base '/'.
+// '/' = public real-time (user), '/admin' = panel (login). Dev'da API 8100 ga proksi.
 const BACKEND = "http://localhost:8100";
 const proxy = Object.fromEntries(
   ["/api", "/chat", "/chat-stream", "/voices", "/idle.jpg", "/videos", "/health"].map(
@@ -13,7 +13,7 @@ const proxy = Object.fromEntries(
 );
 
 export default defineConfig({
-  base: "/studio/",
+  base: "/",
   plugins: [react()],
   resolve: {
     alias: {

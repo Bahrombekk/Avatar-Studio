@@ -1,8 +1,25 @@
 /* Avatar Studio — backend ko'prigi (real lp_musetalk API, port 8100).
-   Prod'da bir xil origin (/studio), dev'da Vite proksisi orqali. */
+   Prod'da bir xil origin (root /), dev'da Vite proksisi orqali.
+   Admin yozish so'rovlari Authorization: Bearer <token> bilan ketadi. */
 import type { Avatar, AvatarDraft, BuildStatus } from "@/types/avatar";
 import type { Voice, ChatStreamHandler } from "@/types/chat";
 import type { Analytics } from "@/types/analytics";
+
+// ── Admin token (localStorage) ──
+const TOKEN_KEY = "admin_token";
+export function getToken(): string {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+export function setToken(t: string): void {
+  localStorage.setItem(TOKEN_KEY, t);
+}
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+function authHeaders(): Record<string, string> {
+  const t = getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
 
 /** Xato javobidan `detail` xabarini ajratib oladi (bo'lmasa fallback). */
 async function errorDetail(r: Response, fallback: string): Promise<string> {
@@ -16,6 +33,29 @@ async function errorDetail(r: Response, fallback: string): Promise<string> {
 }
 
 export const API = {
+  // ── Admin auth ──
+  async login(password: string): Promise<string> {
+    const r = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "Parol noto'g'ri"));
+    const { token } = (await r.json()) as { token: string };
+    setToken(token);
+    return token;
+  },
+
+  async checkAuth(): Promise<boolean> {
+    if (!getToken()) return false;
+    try {
+      const r = await fetch("/api/auth/check", { headers: authHeaders() });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  },
+
   async listAvatars(): Promise<Avatar[]> {
     const r = await fetch("/api/avatars");
     if (!r.ok) throw new Error("avatars yuklanmadi");
@@ -25,7 +65,7 @@ export const API = {
   async createAvatar(data: AvatarDraft): Promise<Avatar> {
     const r = await fetch("/api/avatars", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
     });
     if (!r.ok) throw new Error("yaratilmadi");
@@ -35,7 +75,7 @@ export const API = {
   async updateAvatar(id: string, data: Partial<Avatar>): Promise<Avatar> {
     const r = await fetch("/api/avatars/" + encodeURIComponent(id), {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
     });
     if (!r.ok) throw new Error("yangilanmadi");
@@ -45,6 +85,7 @@ export const API = {
   async deleteAvatar(id: string): Promise<{ ok: boolean }> {
     const r = await fetch("/api/avatars/" + encodeURIComponent(id), {
       method: "DELETE",
+      headers: authHeaders(),
     });
     if (!r.ok) throw new Error("o'chirilmadi");
     return (await r.json()) as { ok: boolean };
@@ -56,6 +97,7 @@ export const API = {
     fd.append("file", file);
     const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/photo", {
       method: "POST",
+      headers: authHeaders(),
       body: fd,
     });
     if (!r.ok) throw new Error(await errorDetail(r, "rasm yuklanmadi"));
@@ -71,7 +113,7 @@ export const API = {
   async buildIdle(id: string): Promise<{ ok: boolean; state: string }> {
     const r = await fetch(
       "/api/avatars/" + encodeURIComponent(id) + "/build-idle",
-      { method: "POST" },
+      { method: "POST", headers: authHeaders() },
     );
     if (!r.ok) throw new Error(await errorDetail(r, "idle yaratilmadi"));
     return (await r.json()) as { ok: boolean; state: string };
@@ -83,7 +125,7 @@ export const API = {
   ): Promise<{ ok: boolean; state: string; stage: string }> {
     const r = await fetch(
       "/api/avatars/" + encodeURIComponent(id) + "/build-musetalk",
-      { method: "POST" },
+      { method: "POST", headers: authHeaders() },
     );
     if (!r.ok) throw new Error(await errorDetail(r, "artefakt yaratilmadi"));
     return (await r.json()) as { ok: boolean; state: string; stage: string };
@@ -102,7 +144,7 @@ export const API = {
   },
 
   async analytics(): Promise<Analytics> {
-    const r = await fetch("/api/analytics");
+    const r = await fetch("/api/analytics", { headers: authHeaders() });
     if (!r.ok) throw new Error("analitika yuklanmadi");
     return (await r.json()) as Analytics;
   },

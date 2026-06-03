@@ -1,6 +1,6 @@
 {
-  "sessions": 2,
-  "avgLatency": 5.57,
-  "cacheRate": 50,
+  "sessions": 9,
+  "avgLatency": 1.73,
+  "cacheRate": 12,
   "csat": 4.7
 }
