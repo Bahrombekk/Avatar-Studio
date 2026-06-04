@@ -9,7 +9,7 @@ import { openRealtimeWS } from "@/api/realtime";
 import { useAvatars } from "@/context/AvatarsContext";
 import type { Avatar } from "@/types/avatar";
 
-type Turn = { role: "user" | "avatar"; text: string };
+type Turn = { role: "user" | "avatar"; text: string; streaming?: boolean };
 
 export function RealtimePage() {
   const { avatars } = useAvatars();
@@ -48,7 +48,7 @@ export function RealtimePage() {
     setAnswerUrl(null);
     const ws = openRealtimeWS(
       avatar.id,
-      avatar.voice,
+      avatar.voice || "",
       (type, data) => {
         if (type === "listening") setStatus("Tinglanmoqda…");
         else if (type === "transcript") {
@@ -56,9 +56,32 @@ export function RealtimePage() {
           if (t) setTurns((p) => [...p, { role: "user", text: t }]);
           setStatus("Javob tayyorlanmoqda…");
           setMetrics({ stt: Number(data.t) || 0, gpt: 0, tts: 0, video: null });
+        } else if (type === "token") {
+          // GPT token oqimi — javob matni jonli yoziladi.
+          const d = String(data.text || "");
+          if (!d) return;
+          setTurns((p) => {
+            const last = p[p.length - 1];
+            if (last && last.role === "avatar" && last.streaming) {
+              const c = p.slice();
+              c[c.length - 1] = { ...last, text: last.text + d };
+              return c;
+            }
+            return [...p, { role: "avatar", text: d, streaming: true }];
+          });
         } else if (type === "text") {
+          // To'liq javob — jonli matnni yakunlaymiz (kesilgan bo'shliqlar bilan).
           const t = String(data.text || "");
-          if (t) setTurns((p) => [...p, { role: "avatar", text: t }]);
+          setTurns((p) => {
+            const last = p[p.length - 1];
+            if (last && last.role === "avatar" && last.streaming) {
+              const c = p.slice();
+              c[c.length - 1] = { role: "avatar", text: t || last.text };
+              return c;
+            }
+            return t ? [...p, { role: "avatar", text: t }] : p;
+          });
+          setMetrics((m) => (m ? { ...m, gpt: Number(data.t) || m.gpt } : m));
         } else if (type === "stream" || type === "video") {
           const tm = (data.timing as { gpt?: number; tts?: number }) || {};
           setMetrics((m) =>

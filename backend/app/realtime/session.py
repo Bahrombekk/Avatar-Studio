@@ -10,7 +10,7 @@ import uuid
 
 from app.core.paths import TEMP_DIR
 from app.services import avatar_store
-from app.services.gpt import SYSTEM_PROMPT, ask_gpt, build_system_prompt
+from app.services.gpt import SYSTEM_PROMPT, ask_gpt_stream, build_system_prompt
 from app.services.tts import tts
 
 _PENDING = {}
@@ -22,9 +22,16 @@ def take_pending(token: str):
         return _PENDING.pop(token, None)
 
 
-def reply_stream(user_text: str, avatar_id: str = None, voice: str = None):
-    """Matndan javob quvuri. {text} → {stream,url} → {done}  yoki {error}."""
+def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
+                 session_id: str = None):
+    """Matndan javob quvuri. {text} → {stream,url} → {done}  yoki {error}.
+
+    session_id — har WS ulanishiga noyob (multi-user): GPT suhbat tarixi shu kalit
+    bo'yicha alohida saqlanadi, shunda bir avatarga gaplashayotgan turli userlar
+    bir-birining kontekstini ko'rmaydi. Berilmasa avatar_id'ga qaytadi.
+    """
     avatar = avatar_store.get_avatar(avatar_id) if avatar_id else None
+    history_key = session_id or avatar_id
     use_voice = voice or (avatar or {}).get("voice", "madina")
     fps = int((avatar or {}).get("fps", 25)) or 25
 
@@ -37,15 +44,23 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None):
     else:
         system_prompt, max_tokens, temperature = SYSTEM_PROMPT, 360, 0.4
     t = time.time()
+    parts = []
+    ttft = None      # time-to-first-token (his qilinadigan kechikish)
     try:
-        reply = ask_gpt(user_text, system_prompt=system_prompt,
-                        temperature=temperature, max_tokens=max_tokens,
-                        history_key=avatar_id)
+        for delta in ask_gpt_stream(user_text, system_prompt=system_prompt,
+                                    temperature=temperature, max_tokens=max_tokens,
+                                    history_key=history_key):
+            if ttft is None:
+                ttft = round(time.time() - t, 2)
+            parts.append(delta)
+            yield {"type": "token", "text": delta}   # jonli matn
     except Exception as e:  # noqa: BLE001
         yield {"type": "error", "message": f"GPT xatosi: {e}"}
         return
+    reply = "".join(parts).strip()
     gpt_t = round(time.time() - t, 2)
-    yield {"type": "text", "text": reply, "t": gpt_t}
+    # To'liq matn (frontend yakunlash/timing uchun) — ttft = birinchi token vaqti.
+    yield {"type": "text", "text": reply, "t": gpt_t, "ttft": ttft}
 
     if avatar_id:
         try:

@@ -11,6 +11,7 @@ import pickle
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 
 from app.core.paths import (
     MT_DIR, AVATAR_LATENTS, AVATAR_COORDS, AVATAR_MASK_COORD,
@@ -39,6 +40,76 @@ _timesteps = _weight_dtype = _device = None
 _avatars = {}
 _avatars_lock = threading.Lock()
 _LEGACY_KEY = "_legacy_madina_lp"
+
+# ── GPU bandwidth cheklovi (bir nechta foydalanuvchi) ──
+# Bir vaqtda nechta inference GPU'da yurishi mumkin. Cheklov bo'lmasa, ko'p user
+# bir vaqtda kelsa VRAM portlaydi va hammaga keskin sekinlashadi. Generatsiya
+# BURST-li (user gapiradi → ~2s video → uzoq tinglaydi) bo'lgani uchun bitta GPU
+# bir nechta foydalanuvchini navbat bilan bemalol uddalaydi. Slot FAQAT haqiqiy
+# GPU hisoblash davomida ushlanadi (ffmpeg/tarmoq slotni band qilmaydi).
+# Sozlash: RT_GPU_SLOTS (default 2). RTX 5090 32GB → 2 inference bemalol sig'adi.
+_GPU_SLOTS = max(1, int(os.environ.get("RT_GPU_SLOTS", "2")))
+_gpu_sem = threading.BoundedSemaphore(_GPU_SLOTS)
+
+# Inference batch hajmi. Kattaroq batch → kamroq kernel launch → GPU to'liqroq
+# band → tezroq (sifat O'ZGARMAYDI — faqat guruhlash). RTX 5090 32GB kattasini
+# ko'taradi. Sozlash: MT_BATCH (default 16).
+_BATCH = max(1, int(os.environ.get("MT_BATCH", "16")))
+
+
+@contextmanager
+def _gpu_slot(tag: str = ""):
+    """GPU inference uchun bitta slot egallaydi (bandwidthni cheklaydi)."""
+    t0 = time.time()
+    _gpu_sem.acquire()
+    waited = time.time() - t0
+    if waited > 0.05:
+        print(f"[LP-MuseTalk] GPU navbatda kutildi {waited:.2f}s ({tag})")
+    try:
+        yield
+    finally:
+        _gpu_sem.release()
+
+
+def gpu_slots() -> int:
+    """Sozlangan bir vaqtdagi GPU slot soni (kuzatuv/test uchun)."""
+    return _GPU_SLOTS
+
+
+# ── Video kodlovchi tanlash (NVENC GPU-kodlash → CPU ffmpeg bottleneck'ini yo'qotadi) ──
+_ENCODER = None
+
+
+def _encoder_name() -> str:
+    """h264_nvenc (GPU) mavjud bo'lsa shuni, aks holda libx264 (CPU) tanlaydi.
+    Bir marta aniqlanib keshlanadi. Majburlash: VIDEO_ENCODER env."""
+    global _ENCODER
+    if _ENCODER is not None:
+        return _ENCODER
+    forced = os.environ.get("VIDEO_ENCODER")
+    if forced:
+        _ENCODER = forced
+        return _ENCODER
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, timeout=10).stdout
+        _ENCODER = "h264_nvenc" if "h264_nvenc" in out else "libx264"
+    except Exception:  # noqa: BLE001
+        _ENCODER = "libx264"
+    print(f"[LP-MuseTalk] Video kodlovchi: {_ENCODER}")
+    return _ENCODER
+
+
+def _venc_args(fps: int) -> list:
+    """Tanlangan kodlovchi uchun ffmpeg video argumentlari (sifat ~crf18 darajasida).
+    NVENC: -cq 20 + p5/hq → x264 crf18 ga yaqin sifat, lekin GPU'da ~5x tez."""
+    enc = _encoder_name()
+    if enc == "h264_nvenc":
+        return ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
+                "-rc", "vbr", "-cq", "20", "-b:v", "0",
+                "-pix_fmt", "yuv420p", "-g", str(fps)]
+    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-pix_fmt", "yuv420p", "-g", str(fps)]
 
 
 def is_loaded() -> bool:
@@ -87,6 +158,19 @@ def _load():
     _whisper.requires_grad_(False)
 
     _fp = FaceParsing(left_cheek_width=90, right_cheek_width=90)
+
+    # torch.compile — SINOVDAN O'TKAZILDI: bu workload (MuseTalk UNet FP16, batch=8)
+    # uchun tezlik DEYARLI O'ZGARMADI (~5%), lekin birinchi inference ~7 daqiqa
+    # kompilyatsiya qildi (warmup'ni buzadi). Shu sabab STANDART BO'YICHA O'CHIQ.
+    # Boshqa GPU/kelajak uchun opt-in: ENABLE_COMPILE=1. (Haqiqiy tezlik — TensorRT.)
+    if os.environ.get("ENABLE_COMPILE") == "1":
+        try:
+            _unet.model = torch.compile(_unet.model, dynamic=True)
+            _vae.vae = torch.compile(_vae.vae, dynamic=True)
+            print("[LP-MuseTalk] torch.compile yoqildi (UNet + VAE)")
+        except Exception as e:  # noqa: BLE001
+            print(f"[LP-MuseTalk] torch.compile o'tkazib yuborildi: {e}")
+
     _loaded = True
     print(f"[LP-MuseTalk] Asosiy modellar tayyor: {time.time()-t0:.1f}s")
 
@@ -210,6 +294,16 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
     from musetalk.utils.blending import get_image_blending
 
     ensure_loaded()
+    _prof = os.environ.get("RT_PROFILE") == "1"
+    _pt = time.time()
+
+    def _lap(name):
+        nonlocal _pt
+        if _prof:
+            import torch as _t
+            _t.cuda.synchronize()
+            print(f"[PROFILE] {name}: {time.time()-_pt:.3f}s")
+            _pt = time.time()
 
     try:
         art = _get_artifact(avatar_id)
@@ -218,6 +312,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         _mask_coords_list_cycle = art["mask_coords"]
         _frame_list_cycle = art["frames"]
         _mask_list_cycle = art["masks"]
+        _lap("artefakt")
 
         # 1. Whisper audio xususiyatlari
         whisper_input_features, librosa_length = _audio_processor.get_audio_feature(
@@ -228,12 +323,13 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             fps=fps, audio_padding_length_left=2, audio_padding_length_right=2,
         )
         video_num = len(whisper_chunks)
+        _lap("whisper")
 
-        # 2. Batch inference
-        batch_size = 8
+        # 2. Batch inference (GPU slot bilan cheklangan — multi-user xavfsizligi)
+        batch_size = _BATCH
         gen = datagen(whisper_chunks, _input_latent_list_cycle, batch_size)
         res_frame_list = []
-        with torch.inference_mode():
+        with _gpu_slot("infer"), torch.inference_mode():
             for whisper_batch, latent_batch in gen:
                 audio_feature_batch = _pe(whisper_batch.to(_device))
                 latent_batch = latent_batch.to(device=_device, dtype=_unet.model.dtype)
@@ -244,6 +340,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
                 recon = _vae.decode_latents(pred_latents)
                 for res_frame in recon:
                     res_frame_list.append(res_frame)
+        _lap("GPU (UNet+VAE)")
 
         # 3. To'liq kadrga composite (parallel)
         n_total = min(len(res_frame_list), video_num)
@@ -263,6 +360,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
 
         with ThreadPoolExecutor(max_workers=12) as ex:
             out_frames = [f for f in ex.map(_composite_one, range(n_total)) if f is not None]
+        _lap(f"composite ({n_total} kadr)")
 
         # Oxirgi 3 kadrni kesish (audio chetidagi g'alati lab)
         if len(out_frames) > 3:
@@ -288,7 +386,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             "ffmpeg", "-y", "-v", "warning",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps),
             "-i", "-", "-i", wav_path,
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "ultrafast",
+            *_venc_args(fps),
             "-af", "apad", "-c:a", "aac", "-shortest", out_mp4,
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
@@ -300,6 +398,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             print(f"[LP-MuseTalk ffmpeg ERR] {e}")
             proc.kill()
             return False
+        _lap("ffmpeg encode")
 
         return os.path.exists(out_mp4)
 
@@ -349,9 +448,9 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
         "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
         "-i", wav_path,
         "-map", "0:v", "-map", "1:a",
-        # Sifat: crf 18 + veryfast (ultrafast'dan aniqroq), tezlikka deyarli ta'sir yo'q.
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
-        "-g", str(fps), "-crf", "18", "-c:a", "aac", "-b:a", "128k", "-shortest",
+        # Video kodlovchi (odatda libx264 crf18; o'lchov: stream'da ffmpeg GPU ostida
+        # to'liq yashiringan — bottleneck emas, shuning uchun NVENC kerak emas).
+        *_venc_args(fps), "-c:a", "aac", "-b:a", "128k", "-shortest",
         "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
     ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
@@ -365,34 +464,45 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
             return None
         return get_image_blending(ori, rf, [x1, y1, x2, y2], masks[ci], mask_coords[ci])
 
-    # LEAN: GPU thread UNet'ni UZLUKSIZ yuritadi (GPU isib/pipelined qoladi → batch
-    # tezligi), dekodlangan kadrlarni navbatga qo'yadi. Consumer BITTA thread'da
-    # composite (cv2 GIL'ni bo'shatadi) + ffmpeg'ga yozadi. Kam thread → GIL kurashi minimal.
+    # GPU producer (UNet+VAE) → frame_q → BITTA consumer (composite + ffmpeg).
+    # MUHIM (o'lchov): composite'ni ko'p threadga bo'lish GPU-dispatch producer
+    # thread'idan Python GIL'ni o'g'irlab GPU'ni SEKINLASHTIRDI (8 worker → GPU
+    # 1.55s→2.07s). Shu sabab bitta consumer eng tez (batch 16 bilan ~1.81s).
+    # Katta navbat: GPU kadrlarni backpressuresiz to'kib slotini tez bo'shatadi.
     import queue as _queue
-    frame_q: _queue.Queue = _queue.Queue(maxsize=48)
+    frame_q: _queue.Queue = _queue.Queue(maxsize=512)
+
+    _prof = os.environ.get("RT_PROFILE") == "1"
+    _stat = {"gpu": 0.0}
 
     def producer():
-        try:
-            gen = datagen(whisper_chunks, latents, 8)
-            idx = 0
-            with torch.inference_mode():
-                for whisper_batch, latent_batch in gen:
-                    if idx >= video_num:
-                        break
-                    audio_feat = _pe(whisper_batch.to(_device))
-                    lb = latent_batch.to(device=_device, dtype=_unet.model.dtype)
-                    pred = _unet.model(lb, _timesteps, encoder_hidden_states=audio_feat).sample
-                    pred = pred.to(device=_device, dtype=_vae.vae.dtype)
-                    recon = _vae.decode_latents(pred)
-                    for j in range(len(recon)):
+        # GPU slotini FAQAT haqiqiy GPU hisoblash davomida ushlaymiz (multi-user).
+        with _gpu_slot("stream"):
+            try:
+                _g0 = time.time()
+                gen = datagen(whisper_chunks, latents, _BATCH)
+                idx = 0
+                with torch.inference_mode():
+                    for whisper_batch, latent_batch in gen:
                         if idx >= video_num:
                             break
-                        frame_q.put((idx, recon[j]))   # GPU kutmaydi (navbat buferli)
-                        idx += 1
-        except Exception as e:  # noqa: BLE001
-            print(f"[LP-MuseTalk stream producer ERR] {e}")
-        finally:
-            frame_q.put(None)
+                        audio_feat = _pe(whisper_batch.to(_device))
+                        lb = latent_batch.to(device=_device, dtype=_unet.model.dtype)
+                        pred = _unet.model(lb, _timesteps, encoder_hidden_states=audio_feat).sample
+                        pred = pred.to(device=_device, dtype=_vae.vae.dtype)
+                        recon = _vae.decode_latents(pred)
+                        for j in range(len(recon)):
+                            if idx >= video_num:
+                                break
+                            frame_q.put((idx, recon[j]))   # GPU kutmaydi (navbat buferli)
+                            idx += 1
+                if _prof:
+                    torch.cuda.synchronize()
+                    _stat["gpu"] = time.time() - _g0
+            except Exception as e:  # noqa: BLE001
+                print(f"[LP-MuseTalk stream producer ERR] {e}")
+        # slot bo'shadi — endi consumer/ffmpeg/tarmoq GPU'siz davom etadi
+        frame_q.put(None)
 
     def consumer():
         try:
@@ -412,6 +522,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
             except Exception:
                 pass
 
+    _w0 = time.time()
     tp = threading.Thread(target=producer, daemon=True)
     tc = threading.Thread(target=consumer, daemon=True)
     tp.start()
@@ -430,3 +541,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
         proc.wait()
         tp.join(timeout=5)
         tc.join(timeout=5)
+        if _prof:
+            wall = time.time() - _w0
+            print(f"[PROFILE-STREAM] {video_num} kadr | GPU={_stat['gpu']:.3f}s | "
+                  f"jami devor-soat={wall:.3f}s | consumer+ffmpeg overlap={wall-_stat['gpu']:.3f}s")

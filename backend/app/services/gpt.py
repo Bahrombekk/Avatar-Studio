@@ -1,4 +1,6 @@
 """GPT javob generatsiyasi + persona/system prompt boshqaruvi."""
+import threading
+
 from openai import OpenAI
 
 from app.core.config import openai_api_key
@@ -16,15 +18,29 @@ JAVOB USLUBI (juda muhim — qisqa javob real-time video uchun shart):
 - O'zbek tilida, do'stona ohangda
 - Narxlarni "yo'nalishga qarab farq qiladi" deb umumiy ayting"""
 
-# Global (None kalit) + avatarga xos suhbat tarixi
-chat_history = []
-_histories = {}
+# Suhbat tarixi. MUHIM: real-time public sahifada bir avatarga ko'p user
+# gaplashadi — shuning uchun tarix HAR SESSIYA uchun alohida bo'lishi shart
+# (aks holda userlar bir-birining konteksti/gaplarini ko'radi). ws.py har WS
+# ulanishiga noyob session_id beradi va shuni history_key sifatida uzatadi.
+# Admin matn-chat (/chat) esa avatar_id'ni kalit qiladi (bitta admin, davomiylik).
+chat_history = []        # None kalit (eski global yo'l)
+_histories = {}          # key (session_id yoki avatar_id) → xabarlar ro'yxati
+_hist_lock = threading.Lock()
 
 
 def _history_for(key):
     if key is None:
         return chat_history
-    return _histories.setdefault(key, [])
+    with _hist_lock:
+        return _histories.setdefault(key, [])
+
+
+def clear_history(key) -> None:
+    """Sessiya tarixini o'chiradi (WS uzilganda chaqiriladi — xotira oqmasin)."""
+    if key is None:
+        return
+    with _hist_lock:
+        _histories.pop(key, None)
 
 
 # Javob uzunligi profillari (respLen → ko'rsatma + token chegarasi).
@@ -95,3 +111,34 @@ def ask_gpt(user_message: str, system_prompt: str = SYSTEM_PROMPT,
     if len(hist) > 16:
         del hist[:-16]
     return reply
+
+
+def ask_gpt_stream(user_message: str, system_prompt: str = SYSTEM_PROMPT,
+                   temperature: float = 0.4, max_tokens: int = 90,
+                   history_key=None):
+    """ask_gpt'ning token-oqim varianti: javob bo'laklarini (delta) yieldlaydi.
+
+    Frontend matnni jonli (yozilayotgandek) ko'rsatadi → his qilinadigan kechikish
+    keskin kamayadi. Tarixga TO'LIQ javob oxirida bir marta yoziladi (generator
+    to'liq iste'mol qilinishi shart — session.py shuni qiladi)."""
+    hist = _history_for(history_key)
+    hist.append({"role": "user", "content": user_message})
+    stream = client.chat.completions.create(
+        model="gpt-4o-mini",
+        max_tokens=max_tokens,
+        temperature=temperature,
+        messages=[{"role": "system", "content": system_prompt}] + hist,
+        stream=True,
+    )
+    parts = []
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta.content
+        if delta:
+            parts.append(delta)
+            yield delta
+    reply = "".join(parts).strip()
+    hist.append({"role": "assistant", "content": reply})
+    if len(hist) > 16:
+        del hist[:-16]

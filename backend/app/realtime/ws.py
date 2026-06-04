@@ -17,11 +17,13 @@ import json
 import os
 import threading
 import time
+import uuid
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from app.services import avatar_store, musetalk
+from app.services.gpt import clear_history
 from app.realtime.session import reply_stream, take_pending
 from app.realtime.stt_stream import StreamingSTT
 
@@ -62,6 +64,8 @@ async def realtime_ws(ws: WebSocket):
     avatar = avatar_store.get_avatar(avatar_id) if avatar_id else None
     language = (avatar or {}).get("language", "uz")
     loop = asyncio.get_event_loop()
+    # Har ulanish — alohida suhbat sessiyasi (multi-user: tarixlar aralashmasin).
+    session_id = "rt_" + uuid.uuid4().hex[:16]
 
     stt = None          # joriy StreamingSTT sessiyasi
     speak_t0 = 0.0
@@ -75,7 +79,7 @@ async def realtime_ws(ws: WebSocket):
 
         def worker():
             try:
-                for ev in reply_stream(user_text, avatar_id, voice):
+                for ev in reply_stream(user_text, avatar_id, voice, session_id=session_id):
                     loop.call_soon_threadsafe(q.put_nowait, ev)
             except Exception as e:  # noqa: BLE001
                 loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "message": str(e)})
@@ -134,3 +138,6 @@ async def realtime_ws(ws: WebSocket):
             await ws.close()
         except Exception:
             pass
+    finally:
+        # Sessiya tarixini bo'shatamiz (xotira oqmasin — har ulanish noyob kalit).
+        clear_history(session_id)

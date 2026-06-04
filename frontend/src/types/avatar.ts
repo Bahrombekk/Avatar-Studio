@@ -13,6 +13,7 @@ export interface Avatar {
   status?: AvatarStatus;
   voice?: string;
   lang?: string;
+  language?: string;
   real?: boolean;
   hasArtifact?: boolean;
   hasPhoto?: boolean;
