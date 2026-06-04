@@ -28,3 +28,24 @@ def load_env_var(name: str) -> str:
 
 def openai_api_key() -> str:
     return load_env_var("OPENAI_API_KEY")
+
+
+# ── LLM provayder (gpt javob generatsiyasi) ──
+# Standart: lokal Ollama (DGX'da ishlaydi, tarmoq kechikishi yo'q, tekin).
+# `LLM_PROVIDER=openai` qilib OpenAI'ga qaytish mumkin (fallback / A-B test).
+def llm_provider() -> str:
+    return (load_env_var("LLM_PROVIDER") or "ollama").strip().lower()
+
+
+def ollama_base_url() -> str:
+    """Ollama OpenAI-mos endpoint (/v1). Standart: lokal."""
+    return load_env_var("OLLAMA_BASE_URL") or "http://127.0.0.1:11434/v1"
+
+
+def ollama_model() -> str:
+    return load_env_var("OLLAMA_MODEL") or "qwen3:8b"
+
+
+def llm_keep_alive() -> str:
+    """Model GPU'da qancha rezident qolsin (sovuq yuklanish ~2.5s'ni oldini oladi)."""
+    return load_env_var("LLM_KEEP_ALIVE") or "30m"

@@ -1,6 +1,5 @@
 /* Eski {screen,id} navigatsiya API'si ↔ react-router URL ko'prigi.
-   .jsx komponentlar hali `go({screen,id})` va `route.screen` ishlatadi —
-   ularni o'zgartirmasdan router bilan ishlashga imkon beradi (Faza 4'da TS'ga ko'chadi). */
+   Admin sahifalar endi /admin ostida; public real-time / da. */
 import { useNavigate } from "react-router-dom";
 
 export interface Route {
@@ -8,35 +7,41 @@ export interface Route {
   id?: string;
 }
 
-/** {screen,id} → URL yo'li. */
+/** {screen,id} → URL yo'li. Admin sahifalar /admin prefiksi bilan. */
 export function screenToPath(route: Route): string {
   switch (route.screen) {
     case "dashboard":
-      return "/";
+      return "/admin";
     case "editor":
-      return "/editor/" + (route.id || "new");
+      return "/admin/editor/" + (route.id || "new");
     case "analytics":
-      return "/analytics";
+      return "/admin/analytics";
     case "conversations":
-      return "/conversations";
+      return "/admin/conversations";
     case "users":
-      return "/users";
+      return "/admin/users";
     case "settings":
-      return "/settings";
+      return "/admin/settings";
     case "preview":
-      return route.id ? "/preview/" + route.id : "/preview";
+      return route.id ? "/admin/preview/" + route.id : "/admin/preview";
+    case "realtime":
+      return "/"; // public foydalanuvchi sahifasi
     default:
-      return "/";
+      return "/admin";
   }
 }
 
 /** URL yo'li → {screen,id} (Sidebar'ning active holati uchun). */
 export function pathToRoute(pathname: string): Route {
-  if (pathname === "/" || pathname === "") return { screen: "dashboard" };
-  if (pathname.startsWith("/editor/")) {
-    return { screen: "editor", id: pathname.slice("/editor/".length) };
+  if (pathname === "/" || pathname === "") return { screen: "realtime" };
+  // /admin va /admin/... ni normallashtiramiz
+  let p = pathname.replace(/^\/admin\/?/, "");
+  if (p === "") return { screen: "dashboard" };
+  if (p.startsWith("editor/")) {
+    return { screen: "editor", id: p.slice("editor/".length) };
   }
-  const screen = pathname.replace(/^\//, "").split("/")[0];
+  if (p.startsWith("preview")) return { screen: "preview" };
+  const screen = p.split("/")[0];
   return { screen };
 }
 

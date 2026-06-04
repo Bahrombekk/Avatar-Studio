@@ -131,6 +131,7 @@ def _get_artifact(avatar_id):
 
     import torch
     import cv2
+    from concurrent.futures import ThreadPoolExecutor
 
     t1 = time.time()
     latents = torch.load(str(paths["latents"]))
@@ -138,8 +139,13 @@ def _get_artifact(avatar_id):
         coords = pickle.load(f)
     with open(paths["mask_coords"], "rb") as f:
         mask_coords = pickle.load(f)
-    frames = [cv2.imread(p) for p in sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))]
-    masks = [cv2.imread(p) for p in sorted(glob.glob(str(paths["mask_dir"] / "*.png")))]
+    # 200 kadr + 200 mask PNG — PARALLEL o'qiymiz (DrvFs'da ketma-ket o'qish sekin;
+    # cv2.imread GIL'ni bo'shatadi → parallel I/O birinchi yuklashni keskin tezlashtiradi).
+    img_paths = sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))
+    mask_paths = sorted(glob.glob(str(paths["mask_dir"] / "*.png")))
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        frames = list(ex.map(cv2.imread, img_paths))
+        masks = list(ex.map(cv2.imread, mask_paths))
 
     art = {"latents": latents, "coords": coords, "mask_coords": mask_coords,
            "frames": frames, "masks": masks}
@@ -170,6 +176,7 @@ def warmup():
         "-t", "0.5", "-ar", "16000", "-ac", "1", tmp.name,
     ], capture_output=True)
     t = time.time()
+    # Inference kernellarini isitamiz (cudnn autotune — batch va stream bir xil kernellar).
     musetalk_infer(tmp.name, str(VID_OUT_DIR / "_warmup.mp4"))
     for p in (tmp.name, str(VID_OUT_DIR / "_warmup.mp4")):
         try:
@@ -177,6 +184,21 @@ def warmup():
         except Exception:
             pass
     print(f"[LP-MuseTalk] Warmup: {time.time()-t:.1f}s")
+
+
+def preload_artifact(avatar_id: str) -> bool:
+    """Avatar artefaktini (200 kadr/mask PNG) keshга oldindan yuklaydi.
+
+    Birinchi so'rov sekin bo'lmasligi uchun startupda chaqiriladi — aks holda
+    foydalanuvchining BIRINCHI savolida artefakt diskdan (sekin DrvFs) o'qiladi.
+    """
+    try:
+        ensure_loaded()
+        _get_artifact(avatar_id)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[LP-MuseTalk] preload '{avatar_id}' ogohlantirish: {e}")
+        return False
 
 
 def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None) -> bool:
@@ -286,3 +308,125 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         import traceback
         traceback.print_exc()
         return False
+
+
+def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
+    """STREAMING variant: kadrlarni generatsiya paytida fragmented-mp4 bayt
+    bo'laklari sifatida yieldlaydi (eski musetalk_infer'ga TEGILMAYDI — additiv).
+
+    ffmpeg fragmented mp4 (frag_keyframe+empty_moov) — brauzer progressive o'ynaydi.
+    Yozuvchi thread kadrlarni stdin'ga yozadi; generator stdout'dan o'qib uzatadi
+    (deadlock yo'q). Kadrlar BATCH bo'yicha parallel composit qilinib, tartibda yoziladi.
+    """
+    import torch
+    import cv2
+    import numpy as np
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from musetalk.utils.utils import datagen
+    from musetalk.utils.blending import get_image_blending
+
+    ensure_loaded()
+    art = _get_artifact(avatar_id)
+    latents = art["latents"]
+    coords = art["coords"]
+    mask_coords = art["mask_coords"]
+    frames = art["frames"]
+    masks = art["masks"]
+
+    whisper_input_features, librosa_length = _audio_processor.get_audio_feature(
+        wav_path, weight_dtype=_weight_dtype
+    )
+    whisper_chunks = _audio_processor.get_whisper_chunk(
+        whisper_input_features, _device, _weight_dtype, _whisper, librosa_length,
+        fps=fps, audio_padding_length_left=2, audio_padding_length_right=2,
+    )
+    video_num = len(whisper_chunks)
+    h, w = frames[0].shape[:2]
+
+    proc = subprocess.Popen([
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
+        "-i", wav_path,
+        "-map", "0:v", "-map", "1:a",
+        # Sifat: crf 18 + veryfast (ultrafast'dan aniqroq), tezlikka deyarli ta'sir yo'q.
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+        "-g", str(fps), "-crf", "18", "-c:a", "aac", "-b:a", "128k", "-shortest",
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
+    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def _composite(idx, res_frame):
+        ci = idx % len(frames)
+        x1, y1, x2, y2 = coords[ci]
+        ori = frames[ci].copy()
+        try:
+            rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1))
+        except Exception:
+            return None
+        return get_image_blending(ori, rf, [x1, y1, x2, y2], masks[ci], mask_coords[ci])
+
+    # LEAN: GPU thread UNet'ni UZLUKSIZ yuritadi (GPU isib/pipelined qoladi → batch
+    # tezligi), dekodlangan kadrlarni navbatga qo'yadi. Consumer BITTA thread'da
+    # composite (cv2 GIL'ni bo'shatadi) + ffmpeg'ga yozadi. Kam thread → GIL kurashi minimal.
+    import queue as _queue
+    frame_q: _queue.Queue = _queue.Queue(maxsize=48)
+
+    def producer():
+        try:
+            gen = datagen(whisper_chunks, latents, 8)
+            idx = 0
+            with torch.inference_mode():
+                for whisper_batch, latent_batch in gen:
+                    if idx >= video_num:
+                        break
+                    audio_feat = _pe(whisper_batch.to(_device))
+                    lb = latent_batch.to(device=_device, dtype=_unet.model.dtype)
+                    pred = _unet.model(lb, _timesteps, encoder_hidden_states=audio_feat).sample
+                    pred = pred.to(device=_device, dtype=_vae.vae.dtype)
+                    recon = _vae.decode_latents(pred)
+                    for j in range(len(recon)):
+                        if idx >= video_num:
+                            break
+                        frame_q.put((idx, recon[j]))   # GPU kutmaydi (navbat buferli)
+                        idx += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"[LP-MuseTalk stream producer ERR] {e}")
+        finally:
+            frame_q.put(None)
+
+    def consumer():
+        try:
+            while True:
+                item = frame_q.get()
+                if item is None:
+                    break
+                idx, rf = item
+                fr = _composite(idx, rf)
+                if fr is not None:
+                    proc.stdin.write(fr.astype(np.uint8).tobytes())
+        except Exception as e:  # noqa: BLE001
+            print(f"[LP-MuseTalk stream consumer ERR] {e}")
+        finally:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+
+    tp = threading.Thread(target=producer, daemon=True)
+    tc = threading.Thread(target=consumer, daemon=True)
+    tp.start()
+    tc.start()
+    try:
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+        proc.wait()
+        tp.join(timeout=5)
+        tc.join(timeout=5)

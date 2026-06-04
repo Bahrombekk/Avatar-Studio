@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { I } from "../lib/icons";
 import { Btn, Card, Segmented, Portrait, StatusBadge } from "./ui/index.jsx";
+import { useAuth } from "@/context/AuthContext";
 
 const NAV = [
   { id: "dashboard", label: "Avatarlar", icon: "grid" },
@@ -12,6 +13,7 @@ const NAV = [
 ];
 
 export function Sidebar({ route, go, flags }) {
+  const { logout } = useAuth();
   return (
     <aside className="sb">
       <div className="sb-brand">
@@ -40,6 +42,9 @@ export function Sidebar({ route, go, flags }) {
       <button className="sb-preview" onClick={() => go({ screen: "preview" })}>
         <I.eye size={15} /> Jonli ko‘rinish
       </button>
+      <a className="sb-preview" href="/" style={{ marginTop: 8, textDecoration: "none" }}>
+        <I.mic size={15} /> User sahifa
+      </a>
 
       <div className="sb-foot">
         <div className="sb-acct">
@@ -48,6 +53,9 @@ export function Sidebar({ route, go, flags }) {
             <div className="sb-acct-name">Admin</div>
             <div className="sb-acct-mail">studio@uty.uz</div>
           </div>
+          <button className="sb-logout" title="Chiqish" onClick={logout}>
+            <I.x size={15} />
+          </button>
         </div>
       </div>
     </aside>

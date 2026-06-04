@@ -1,7 +1,7 @@
 {
   "id": "sardor_bank",
   "name": "Sardor",
-  "role": "Virtual yordamchi",
+  "role": "DASUTY loyihalar boyicha yordamchi",
   "brand": "O‘zbekiston Temir Yo‘llari",
   "brandShort": "UTY",
   "status": "live",
@@ -11,8 +11,8 @@
     "to": "#0C3A2C",
     "initials": "S"
   },
-  "voice": "ru_dmitry",
-  "language": "ru",
+  "voice": "sardor",
+  "language": "uz",
   "extraMargin": 12,
   "fps": 25,
   "blinkRate": 5,
@@ -23,7 +23,12 @@
   "speechRate": 0,
   "hasPhoto": true,
   "real": true,
-  "suggestions": [],
+  "suggestions": [
+    "Qanday loyihalar bor?",
+    "SMART DEPO nima?",
+    "Railmap haqida ayting",
+    "E-Nakl loyihasi"
+  ],
   "updated": "Hozir",
   "build": {
     "state": "done",

@@ -207,6 +207,23 @@ def _tts_yandex_v3(text: str, tmp_path: str, voice_id: str, speed: float = 1.0):
         f.write(bytes(audio))
 
 
+def _synth_chunk(spec: dict, provider: str, text: str, out_path: str):
+    """Bitta matn bo'lagini bitta audio faylga sintez qiladi (provayderga qarab)."""
+    if provider == "edge":
+        asyncio.run(_tts_edge(text, out_path, spec["voice"]))
+    elif provider == "yandex":
+        _tts_yandex(text, out_path, spec["voice"], spec.get("lang", "uz-UZ"),
+                    speed=spec.get("speed", 1.0))
+    elif provider == "yandex_v3":
+        _tts_yandex_v3(text, out_path, spec["voice"], speed=spec.get("speed", 1.0))
+    else:
+        raise RuntimeError(f"Noma'lum provayder: {provider}")
+
+
+def _ext_for(provider: str) -> str:
+    return ".mp3" if provider == "edge" else ".ogg"
+
+
 def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE):
     spec = VOICES.get(voice) or VOICES[DEFAULT_VOICE]
     provider = spec["provider"]
@@ -215,19 +232,22 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE):
     if provider == "edge":
         # edge-TTS uzun matnni o'zi eplaydi — bo'lishga hojat yo'q.
         tmp = wav_path.replace(".wav", ".mp3")
-        asyncio.run(_tts_edge(text, tmp, spec["voice"]))
+        _synth_chunk(spec, provider, text, tmp)
         tmps = [tmp]
     elif provider in ("yandex", "yandex_v3"):
-        # Yandex uzun matnni rad etadi → jumlalarga bo'lib, har bo'lakni sintez qilamiz.
+        # Yandex uzun matnni rad etadi → jumlalarga bo'lamiz. Bo'laklarni KETMA-KET
+        # emas, PARALLEL sintez qilamiz (kechikish sum → max) — uzun javobda
+        # TTS sezilarli tezlashadi. Tartib saqlanadi.
+        from concurrent.futures import ThreadPoolExecutor
         chunks = _split_text(text) or [text]
-        for i, ch in enumerate(chunks):
-            p = wav_path.replace(".wav", f".p{i}.ogg")
-            if provider == "yandex":
-                _tts_yandex(ch, p, spec["voice"], spec.get("lang", "uz-UZ"),
-                            speed=spec.get("speed", 1.0))
-            else:
-                _tts_yandex_v3(ch, p, spec["voice"], speed=spec.get("speed", 1.0))
-            tmps.append(p)
+        tmps = [wav_path.replace(".wav", f".p{i}.ogg") for i in range(len(chunks))]
+
+        if len(chunks) == 1:
+            _synth_chunk(spec, provider, chunks[0], tmps[0])
+        else:
+            with ThreadPoolExecutor(max_workers=min(6, len(chunks))) as ex:
+                list(ex.map(lambda ic: _synth_chunk(spec, provider, ic[1], tmps[ic[0]]),
+                            list(enumerate(chunks))))
     else:
         raise RuntimeError(f"Noma'lum provayder: {provider}")
     _parts_to_wav(tmps, wav_path, extra_af=smooth)
@@ -236,3 +256,88 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE):
             os.remove(p)
         except OSError:
             pass
+
+
+# Jumla tugashini aniqlash uchun: matnda gap chegarasi (. ! ? …) bo'lsami.
+_SENT_END_RE = re.compile(r"[.!?…]+[\)\"'»]?\s")
+
+
+def tts_streaming(text_pieces, wav_path: str, voice: str = DEFAULT_VOICE) -> str:
+    """GPT matn bo'laklari OQIMINI iste'mol qilib, jumla tayyor bo'lishi bilan
+    uni TTS'ga (fon thread'ida) yuboradi — GPT yozayotganda TTS sintez qiladi.
+
+    Pipelining: GPT jumla-2 ni yozayotganda TTS jumla-1 ni sintez qiladi
+    (kechikish: GPT + TTS o'rniga max(GPT, TTS)). Natija — bitta WAV (downstream
+    MuseTalk o'zgarmaydi). To'liq javob matnini qaytaradi.
+
+    text_pieces — toza matn bo'laklari iteratori (masalan gpt.ask_gpt_stream).
+    """
+    spec = VOICES.get(voice) or VOICES[DEFAULT_VOICE]
+    provider = spec["provider"]
+    smooth = spec.get("smooth_af", "")
+    ext = _ext_for(provider)
+    base = wav_path[:-4] if wav_path.endswith(".wav") else wav_path
+
+    from concurrent.futures import ThreadPoolExecutor
+    ex = ThreadPoolExecutor(max_workers=6)
+    futures = []          # (index, future, tmp_path) — tartib saqlanadi
+    full_text = []
+    buf = ""
+    idx = 0
+
+    def _kick(segment: str):
+        nonlocal idx
+        seg = segment.strip()
+        if not seg:
+            return
+        tmp = f"{base}.p{idx}{ext}"
+        futures.append((idx, ex.submit(_synth_chunk, spec, provider, seg, tmp), tmp))
+        idx += 1
+
+    # 1) Oqimni o'qib, jumla chegarasida (yoki Yandex chegarasidan uzun bo'lsa) sintezni boshlaymiz.
+    for piece in text_pieces:
+        if not piece:
+            continue
+        full_text.append(piece)
+        buf += piece
+        # Jumla(lar) tugagan bo'lsa — tugagan qismini sintezga uzatamiz, qoldiqni saqlaymiz.
+        while True:
+            m = None
+            for mm in _SENT_END_RE.finditer(buf):
+                m = mm
+                break
+            if not m:
+                break
+            cut = m.end()
+            _kick(buf[:cut])
+            buf = buf[cut:]
+        # Yandex juda uzun bo'lakni rad etadi — jumla chegarasi kelmasa ham bo'lamiz.
+        if provider in ("yandex", "yandex_v3") and len(buf) >= _YX_MAX_CHARS:
+            parts = _split_text(buf)
+            for p in parts[:-1]:
+                _kick(p)
+            buf = parts[-1] if parts else ""
+
+    # 2) Qoldiq matn.
+    _kick(buf)
+
+    if idx == 0:                       # bo'sh javob
+        ex.shutdown(wait=True)
+        raise RuntimeError("TTS uchun matn bo'sh")
+
+    # 3) Barcha bo'laklarni tartibda kutib, ulab, bitta WAV qilamiz.
+    tmps = []
+    try:
+        for i, fut, tmp in futures:
+            fut.result()               # xato bo'lsa shu yerda ko'tariladi
+            tmps.append(tmp)
+    finally:
+        ex.shutdown(wait=True)
+
+    _parts_to_wav(tmps, wav_path, extra_af=smooth)
+    for p in tmps:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    return "".join(full_text).strip()

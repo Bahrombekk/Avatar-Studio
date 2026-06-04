@@ -10,9 +10,23 @@ import uuid
 
 from app.core.paths import TEMP_DIR, VID_OUT_DIR
 from app.services.cache import get_cache, is_repeat_request
-from app.services.gpt import ask_gpt, build_system_prompt, SYSTEM_PROMPT
+from app.services.gpt import ask_gpt, ask_gpt_stream, build_system_prompt, SYSTEM_PROMPT
 from app.services.musetalk import musetalk_infer
-from app.services.tts import tts, DEFAULT_VOICE
+from app.services.tts import tts, tts_streaming, DEFAULT_VOICE
+from app.services import portfolio
+
+# BARCHA avatarlar DASUTY loyihalar bazasidan javob beradi (umumiy GPT emas) —
+# PDF doirasidan tashqari savollarga javob bermaydi (hech narsa to'qib chiqarmaydi).
+# Savol bitta loyihaga yo'naltirilib, FAQAT o'sha loyiha matnidan javob quriladi.
+# (Bo'sh to'plam = HAMMASI portfolio rejimida; _is_portfolio shuni anglatadi.)
+_PORTFOLIO_ALL = True
+_PORTFOLIO_AVATARS = {"sardor_bank", "av_yulduz", "madina_lp"}
+
+
+def _is_portfolio(avatar) -> bool:
+    if _PORTFOLIO_ALL:
+        return True
+    return bool(avatar) and avatar.get("id") in _PORTFOLIO_AVATARS
 
 
 def _avatar_params(avatar):
@@ -53,8 +67,13 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
     sid = str(uuid.uuid4())[:8]
 
     t1 = time.time()
-    reply = ask_gpt(user_message, system_prompt=system_prompt,
-                    temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
+    if _is_portfolio(avatar):
+        # DASUTY loyihalar bazasi: bitta loyihaga yo'naltirilgan javob (qwen3:8b),
+        # FAQAT o'sha loyiha matnidan. Loyihalar aralashmaydi.
+        reply = portfolio.answer(user_message, max_tokens=max_tokens)["text"]
+    else:
+        reply = ask_gpt(user_message, system_prompt=system_prompt,
+                        temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
     t_gpt = round(time.time() - t1, 2)
     print(f"[GPT] {t_gpt}s → {reply[:60]}")
 
@@ -123,22 +142,31 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
         return
 
     sid = str(uuid.uuid4())[:8]
-
-    t1 = time.time()
-    reply = ask_gpt(user_message, system_prompt=system_prompt,
-                    temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
-    t_gpt = round(time.time() - t1, 2)
-    yield {"type": "text", "text": reply, "gpt_time": t_gpt, "sid": sid}
-
-    t2 = time.time()
     wav_full = str(TEMP_DIR / f"{sid}.wav")
+    t1 = time.time()
     try:
-        tts(reply, wav_full, voice=voice)
+        if _is_portfolio(avatar):
+            # DASUTY loyihalar bazasi: savolni bitta loyihaga yo'naltirib, FAQAT
+            # o'sha matndan javob (portfolio.answer ichida qwen3:8b). Keyin oddiy TTS.
+            res = portfolio.answer(user_message, max_tokens=max_tokens)
+            reply = res["text"]
+            tts(reply, wav_full, voice=voice)
+        else:
+            # GPT↔TTS pipelining: GPT token'larini OQIM bilan TTS'ga uzatamiz — GPT
+            # keyingi jumlani yozayotganda TTS oldingisini sintez qiladi (~max(GPT,TTS)).
+            pieces = ask_gpt_stream(user_message, system_prompt=system_prompt,
+                                    temperature=temperature, max_tokens=max_tokens,
+                                    history_key=hist_key)
+            reply = tts_streaming(pieces, wav_full, voice=voice)
     except Exception as e:
-        print(f"[TTS XATO] {voice}: {e}")
-        yield {"type": "error", "message": f"Ovoz ({voice}) xatosi: {e}"}
+        print(f"[GPT/TTS XATO] {voice}: {e}")
+        yield {"type": "error", "message": f"Javob/ovoz xatosi: {e}"}
         return
-    t_tts = round(time.time() - t2, 2)
+    t_gpt_tts = round(time.time() - t1, 2)
+    # Eski event shartnomasi saqlanadi: avval text, keyin tts_done.
+    yield {"type": "text", "text": reply, "gpt_time": t_gpt_tts, "sid": sid}
+    t_tts = t_gpt_tts
+    t_gpt = 0.0
     yield {"type": "tts_done", "tts_time": t_tts}
 
     t3 = time.time()

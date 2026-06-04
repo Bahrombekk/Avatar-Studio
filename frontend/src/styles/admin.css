@@ -118,6 +118,88 @@
 .ed-swatch:hover{ transform:scale(1.06); }
 .ed-swatch.on{ border-color:var(--ink); box-shadow:0 0 0 3px var(--bg), 0 0 0 4px var(--brass); }
 
+/* ── Admin login sahifasi ── */
+.login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); }
+.login-card{ display:flex; flex-direction:column; align-items:center; gap:12px; width:340px; max-width:90vw;
+  padding:36px 30px; background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow); }
+.login-logo{ width:54px; height:54px; border-radius:14px; background:var(--navy); color:#fff;
+  display:flex; align-items:center; justify-content:center; }
+.login-title{ font-family:var(--font-display); font-size:22px; color:var(--ink); }
+.login-sub{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.4px; color:var(--ink-3);
+  text-transform:uppercase; text-align:center; }
+.login-input{ width:100%; margin-top:6px; }
+.login-err{ color:var(--err, #C0392B); font-size:12.5px; display:flex; align-items:center; gap:5px; }
+.login-btn{ width:100%; padding:13px; border:0; border-radius:var(--radius); background:var(--navy); color:#fff;
+  font-family:var(--font-body); font-size:15px; cursor:pointer; transition:.15s; }
+.login-btn:hover{ filter:brightness(1.08); }
+.login-btn:disabled{ opacity:.5; cursor:not-allowed; }
+.login-back{ font-family:var(--font-mono); font-size:10px; letter-spacing:.4px; color:var(--ink-3);
+  text-decoration:none; text-transform:uppercase; }
+.login-back:hover{ color:var(--brass); }
+
+.sb-logout{ margin-left:auto; width:30px; height:30px; border-radius:8px; border:1px solid var(--line);
+  background:transparent; color:var(--ink-3); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.sb-logout:hover{ color:var(--err, #C0392B); border-color:var(--err, #C0392B); }
+
+.rt-brand{ display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:18px; color:var(--ink); }
+.rt-brand span{ color:var(--ink-3); font-size:14px; }
+
+/* ── Real-time ovozli suhbat sahifasi ── */
+.rt-wrap{ display:flex; flex-direction:column; height:100vh; min-height:0; padding:22px 26px; gap:18px; }
+.rt-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.rt-top-r{ display:flex; align-items:center; gap:10px; }
+.rt-dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-3); }
+.rt-dot.on{ background:var(--ok, #2E7D32); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok,#2E7D32) 20%, transparent); }
+.rt-conn{ font-family:var(--font-mono); font-size:10px; letter-spacing:.5px; color:var(--ink-2); text-transform:uppercase; }
+.rt-select{ font-family:var(--font-body); font-size:13px; padding:7px 11px; border:1px solid var(--line);
+  border-radius:var(--radius); background:var(--card); color:var(--ink); }
+
+.rt-empty{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+  color:var(--ink-2); text-align:center; }
+.rt-empty-sub{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); }
+
+.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:minmax(320px, 1fr) minmax(320px, 1.1fr); gap:22px; }
+.rt-avatar{ position:relative; border-radius:var(--radius-lg); overflow:hidden; background:var(--panel-2);
+  box-shadow:var(--shadow); aspect-ratio:3/4; max-height:100%; }
+.rt-avatar.busy{ outline:2px solid var(--brass); outline-offset:-2px; }
+.rt-media{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center top; display:block; background:transparent; }
+.rt-base{ z-index:0; }      /* portret — idle yuklanmaguncha ko'rinadi (qora emas) */
+.rt-idle{ z-index:1; }
+.rt-answer{ z-index:2; }
+.rt-name{ position:absolute; left:16px; bottom:14px; color:#fff; font-family:var(--font-display); font-size:22px;
+  text-shadow:0 1px 8px rgba(0,0,0,.6); display:flex; flex-direction:column; }
+.rt-name small{ font-family:var(--font-mono); font-size:9px; letter-spacing:1px; text-transform:uppercase; opacity:.85; }
+.rt-progress{ position:absolute; left:0; right:0; bottom:0; height:5px; background:rgba(255,255,255,.15); overflow:hidden; }
+
+.rt-side{ display:flex; flex-direction:column; min-height:0; gap:14px; }
+.rt-log{ flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:12px; padding-right:6px; }
+.rt-hint{ color:var(--ink-3); font-family:var(--font-mono); font-size:12px; }
+.rt-turn{ display:flex; flex-direction:column; gap:3px; }
+.rt-turn-who{ font-family:var(--font-mono); font-size:9px; letter-spacing:.6px; text-transform:uppercase; color:var(--ink-3); }
+.rt-turn-text{ font-family:var(--font-body); font-size:15px; color:var(--ink); line-height:1.45; }
+.rt-turn.user .rt-turn-text{ color:var(--ink-2); }
+.rt-turn.avatar{ border-left:2px solid var(--brass); padding-left:10px; }
+
+.rt-err{ color:var(--err, #C0392B); font-size:13px; display:flex; align-items:center; gap:6px; }
+.rt-status{ color:var(--ink-2); font-family:var(--font-mono); font-size:11px; letter-spacing:.4px; }
+.rt-metrics{ display:flex; flex-wrap:wrap; gap:8px; padding:10px; border:1px solid var(--line);
+  border-radius:var(--radius); background:var(--panel-2); }
+.rt-metrics > div{ display:flex; flex-direction:column; gap:2px; min-width:54px; }
+.rt-metrics span{ font-family:var(--font-mono); font-size:8.5px; letter-spacing:.5px; text-transform:uppercase; color:var(--ink-3); }
+.rt-metrics b{ font-family:var(--font-display); font-size:15px; color:var(--ink); }
+.rt-metrics-total b{ color:var(--brass); }
+.rt-metrics-total{ margin-left:auto; text-align:right; align-items:flex-end; }
+
+.rt-mic{ display:flex; align-items:center; justify-content:center; gap:10px; padding:16px; border:0; cursor:pointer;
+  border-radius:var(--radius); background:var(--navy); color:#fff; font-family:var(--font-body); font-size:15px;
+  transition:.15s; }
+.rt-mic:hover{ filter:brightness(1.08); }
+.rt-mic:disabled{ opacity:.5; cursor:not-allowed; }
+.rt-mic.rec{ background:var(--err, #C0392B); animation:rt-pulse 1.1s ease-in-out infinite; }
+@keyframes rt-pulse{ 0%,100%{ box-shadow:0 0 0 0 color-mix(in srgb, #C0392B 50%, transparent); } 50%{ box-shadow:0 0 0 10px transparent; } }
+.rt-tip{ text-align:center; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.5px; color:var(--ink-3); text-transform:uppercase; }
+
 .ed-progress{ margin-top:10px; height:5px; width:100%; border-radius:999px; overflow:hidden;
   background:var(--panel-2); position:relative; }
 .ed-progress-bar{ position:absolute; top:0; left:0; height:100%; width:40%; border-radius:999px;

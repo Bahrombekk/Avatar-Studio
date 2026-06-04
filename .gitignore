@@ -63,3 +63,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# ── Maxfiy zaxira/kalitlar (snapshot branch) ──
+backend/.env.bak.*
+backend/certs/

@@ -56,4 +56,12 @@ echo "  Studio : http://localhost:$PORT/studio"
 echo "============================================"
 
 cd "$BASE"
-exec "$PYTHON" -m uvicorn app.main:app --host "$HOST" --port "$PORT" --app-dir "$BASE"
+# ── HTTPS (ixtiyoriy): SSL_CERTFILE + SSL_KEYFILE berilsa, TLS bilan ishlaydi.
+#    Mikrofon (getUserMedia) faqat xavfsiz origin'da (https yoki localhost)
+#    ishlagani uchun LAN IP orqali kirilganda HTTPS shart.
+SSL_ARGS=()
+if [ -n "${SSL_CERTFILE:-}" ] && [ -n "${SSL_KEYFILE:-}" ]; then
+    SSL_ARGS=(--ssl-certfile "$SSL_CERTFILE" --ssl-keyfile "$SSL_KEYFILE")
+    echo "  TLS    : yoqilgan (https://...:$PORT)"
+fi
+exec "$PYTHON" -m uvicorn app.main:app --host "$HOST" --port "$PORT" --app-dir "$BASE" "${SSL_ARGS[@]}"
