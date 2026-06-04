@@ -10,6 +10,7 @@ import { ConversationsPage } from "@/pages/ConversationsPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { PreviewPage } from "@/pages/PreviewPage";
+import { VideoStudioPage } from "@/pages/VideoStudioPage";
 import { RealtimePage } from "@/pages/RealtimePage";
 
 export const router = createBrowserRouter(
@@ -24,6 +25,7 @@ export const router = createBrowserRouter(
       children: [
         { index: true, element: <DashboardPage /> },
         { path: "analytics", element: <AnalyticsPage /> },
+        { path: "studio", element: <VideoStudioPage /> },
         { path: "editor/:id", element: <EditorPage /> },
         { path: "conversations", element: <ConversationsPage /> },
         { path: "users", element: <UsersPage /> },

@@ -74,6 +74,7 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
         clearInterval(pollRef.current); pollRef.current = null;
         if (st.state === "done") {
           if (st.stage === "musetalk_prep") set({ hasArtifact: true });
+          else if (st.stage === "motion") set({ hasMotion: true });
           else setIdleVer((v) => v + 1);
         }
         if (st.state === "error") setBuildErr(st.error || "Generatsiya xatosi");
@@ -102,6 +103,18 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
       pollRef.current = setInterval(pollBuild, 2500);
     } catch (e) {
       setBuildErr(e.message || "Artefakt yaratib bo'lmadi");
+    }
+  }
+  async function startBuildMotion() {
+    if (!savedId) return;
+    setBuildErr("");
+    try {
+      await API.buildMotion(savedId);
+      setBuild({ state: "processing", stage: "motion", running: true });
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(pollBuild, 2500);
+    } catch (e) {
+      setBuildErr(e.message || "Harakat yaratib bo'lmadi");
     }
   }
 
@@ -141,7 +154,8 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
             {tab === "persona"  && <TabPersona draft={draft} set={set} />}
             {tab === "motion"   && <TabMotion draft={draft} set={set}
               savedId={savedId} build={build} idleVer={idleVer} buildErr={buildErr}
-              onBuildIdle={startBuildIdle} onBuildMusetalk={startBuildMusetalk} />}
+              onBuildIdle={startBuildIdle} onBuildMusetalk={startBuildMusetalk}
+              onBuildMotion={startBuildMotion} />}
             {tab === "sugg"     && <TabSugg draft={draft} set={set} />}
             {tab === "brand"    && <TabBrand draft={draft} set={set} setP={setP} />}
           </div>
@@ -320,12 +334,15 @@ function TabPersona({ draft, set }) {
 }
 
 /* ── Tab: Motion / Lip-sync ── */
-function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle, onBuildMusetalk }) {
+function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle, onBuildMusetalk, onBuildMotion }) {
   const state = build && build.state;
   const stage = build && build.stage;
   const processing = !!(build && (build.running || state === "processing"));
   const idleProcessing = processing && stage === "idle_gen";
   const mtProcessing = processing && stage === "musetalk_prep";
+  const motionProcessing = processing && stage === "motion";
+  const motionDone = !!draft.hasMotion;
+  const canBuildMotion = savedId && !!draft.hasArtifact && !processing;
   // Idle tayyor: shu sessiyada yasaldi, yoki artefakt mavjud (idle undan oldin shart edi).
   const idleDone = (stage === "idle_gen" && state === "done") || stage === "musetalk_prep" || !!draft.hasArtifact;
   const mtDone = !!draft.hasArtifact;
@@ -375,6 +392,19 @@ function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle,
         </div>
         {mtProcessing && <div className="ed-progress"><div className="ed-progress-bar" /></div>}
       </Field>
+
+      <Field label="3-qadam · Bosh harakati (Video Studiya)" hint="GPT rejasi bo'yicha bosh harakati (nod/tilt/turn/lean) primitivlarini quradi. Video Studiya'da gapirganda bosh tabiiy harakatlanadi. Bir marta quriladi.">
+        <div className="ed-idle">
+          <Btn kind={motionDone ? "ghost" : "primary"} icon="bolt"
+            onClick={onBuildMotion} disabled={!canBuildMotion}>
+            {motionProcessing ? "Qurilmoqda…" : motionDone ? "Qayta qurish" : "Harakat qurish"}
+          </Btn>
+          {motionProcessing && <span className="ed-idle-st">Primitivlar (7 ta) yaratilmoqda, ~3–6 daqiqa…</span>}
+          {motionDone && !motionProcessing && <span className="ed-idle-st ok">Tayyor — bosh harakati yoqilgan</span>}
+        </div>
+        {motionProcessing && <div className="ed-progress"><div className="ed-progress-bar" /></div>}
+      </Field>
+
       {!savedId && (
         <div className="ed-note"><I.bolt size={14} /><span>Idle yaratish uchun avatarni <b>saqlang</b> va portret yuklang.</span></div>
       )}

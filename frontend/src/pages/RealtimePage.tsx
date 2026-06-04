@@ -27,6 +27,7 @@ export function RealtimePage() {
   const [error, setError] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [answerUrl, setAnswerUrl] = useState<string | null>(null);
+  const [answerFading, setAnswerFading] = useState(false);
   const [metrics, setMetrics] = useState<
     { stt: number; gpt: number; tts: number; video: number | null } | null
   >(null);
@@ -35,6 +36,11 @@ export function RealtimePage() {
   const idleRef = useRef<HTMLVideoElement | null>(null);
   const answerRef = useRef<HTMLVideoElement | null>(null);
   const streamAtRef = useRef<number>(0);
+  // Kadr-sinxron handoff: gapirish to'xtaganda idle qaysi kadrda turgani.
+  const startFrameRef = useRef<number>(0);
+  const answerPlayStartRef = useRef<number>(0);   // javob o'ynashni boshlagan vaqt
+  const fadeTimerRef = useRef<number>(0);
+  const fps = Number(avatar?.fps) || 25;
   // Audio capture
   const ctxRef = useRef<AudioContext | null>(null);
   const procRef = useRef<ScriptProcessorNode | null>(null);
@@ -88,8 +94,11 @@ export function RealtimePage() {
             m ? { ...m, gpt: tm.gpt ?? 0, tts: tm.tts ?? 0 } : m,
           );
           streamAtRef.current = performance.now();
+          answerPlayStartRef.current = 0;
+          window.clearTimeout(fadeTimerRef.current);
           setStatus("");
           setBusy(false);
+          setAnswerFading(false);
           setAnswerUrl(String(data.url));
         } else if (type === "error") {
           setError(String(data.message || "Xatolik"));
@@ -205,7 +214,18 @@ export function RealtimePage() {
     setRecording(false);
     setBusy(true);
     setStatus("Tinglanmoqda…");
-    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send("stop");
+    // Jonli idle videosi qaysi kadrda turibdi → javob aynan shu pozadan boshlansin
+    // (kadr-sinxron handoff → idle→javob o'tishida bosh/ko'z sakramaydi).
+    const idle = idleRef.current;
+    let frame = 0;
+    if (idle && idle.duration) {
+      const total = Math.max(1, Math.round(idle.duration * fps));
+      frame = Math.round(idle.currentTime * fps) % total;
+    }
+    startFrameRef.current = frame;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send("stop:" + frame);
+    }
   }
 
   useEffect(() => () => { stopCapture(); }, []);
@@ -238,21 +258,51 @@ export function RealtimePage() {
         </div>
       ) : (
         <div className="rt-stage">
-          <div className={"rt-avatar" + (busy ? " busy" : "")}>
+          <div className={"rt-avatar" + (busy ? " busy" : "") + (recording ? " listening" : "")}>
             <img className="rt-media rt-base" src={API.photoUrl(avatar.id)} alt={avatar.name} />
             <video ref={idleRef} className="rt-media rt-idle" src={API.idleUrl(avatar.id)}
               loop muted autoPlay playsInline preload="auto" />
             {answerUrl && (
-              <video ref={answerRef} className="rt-media rt-answer" src={answerUrl}
+              <video ref={answerRef}
+                className={"rt-media rt-answer" + (answerFading ? " rt-fade" : "")}
+                src={answerUrl}
                 autoPlay playsInline preload="auto"
                 onPlaying={() => {
+                  if (!answerPlayStartRef.current) answerPlayStartRef.current = performance.now();
                   if (streamAtRef.current) {
                     const v = (performance.now() - streamAtRef.current) / 1000;
                     streamAtRef.current = 0;
                     setMetrics((m) => (m ? { ...m, video: Math.round(v * 100) / 100 } : m));
                   }
                 }}
-                onEnded={() => setAnswerUrl(null)} />
+                onEnded={() => {
+                  // Idle'ni javob tugagan kadrdan davom ettiramiz (kadr-sinxron handoff).
+                  // Javob davomiyligini HAQIQIY o'ynash vaqtidan olamiz — fragmented mp4'da
+                  // video.duration NaN/Infinity bo'lishi mumkin (metadata yo'q).
+                  const idle = idleRef.current;
+                  if (idle && idle.duration) {
+                    const M = Math.max(1, Math.round(idle.duration * fps));
+                    const elapsed = answerPlayStartRef.current
+                      ? (performance.now() - answerPlayStartRef.current) / 1000 : 0;
+                    const N = Math.round(elapsed * fps);
+                    const resume = (((startFrameRef.current + N) % M) + M) % M;
+                    try { idle.currentTime = resume / fps; idle.play().catch(() => {}); } catch { /* ignore */ }
+                  }
+                  answerPlayStartRef.current = 0;
+                  // Silliq crossfade: javobni so'ndirib idle'ni ochamiz (og'iz/kadr farqi yashirinadi).
+                  setAnswerFading(true);
+                  window.clearTimeout(fadeTimerRef.current);
+                  fadeTimerRef.current = window.setTimeout(() => {
+                    setAnswerUrl(null);
+                    setAnswerFading(false);
+                  }, 300);
+                }} />
+            )}
+            {(recording || busy) && (
+              <div className={"rt-state " + (recording ? "listen" : "think")}>
+                <span className="rt-state-ind" />
+                {recording ? "Tinglayapman…" : "O'ylayapman…"}
+              </div>
             )}
             <div className="rt-name">{avatar.name}<small>{avatar.role}</small></div>
             {busy && <div className="rt-progress"><div className="ed-progress-bar" /></div>}

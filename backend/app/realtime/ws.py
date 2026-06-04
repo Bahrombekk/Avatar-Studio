@@ -44,6 +44,7 @@ def realtime_stream(token: str):
         try:
             for chunk in musetalk.musetalk_infer_stream(
                 wav, fps=info["fps"], avatar_id=info["avatar_id"],
+                start_frame=info.get("start_frame"),
             ):
                 yield chunk
         finally:
@@ -73,13 +74,14 @@ async def realtime_ws(ws: WebSocket):
     async def send(obj):
         await ws.send_text(json.dumps(obj, ensure_ascii=False))
 
-    async def run_reply(user_text):
+    async def run_reply(user_text, start_frame=None):
         """GPT+TTS+video quvurini thread'da yuritib, eventlarni yuboradi."""
         q: asyncio.Queue = asyncio.Queue()
 
         def worker():
             try:
-                for ev in reply_stream(user_text, avatar_id, voice, session_id=session_id):
+                for ev in reply_stream(user_text, avatar_id, voice,
+                                       session_id=session_id, start_frame=start_frame):
                     loop.call_soon_threadsafe(q.put_nowait, ev)
             except Exception as e:  # noqa: BLE001
                 loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "message": str(e)})
@@ -107,9 +109,17 @@ async def realtime_ws(ws: WebSocket):
                     stt = StreamingSTT(language=language)
                     speak_t0 = time.time()
                     await send({"type": "listening"})
-                elif text == "stop":
+                elif text == "stop" or text.startswith("stop:"):
                     if stt is None:
                         continue
+                    # "stop:<frame>" — frontend jonli idle videosining joriy kadri
+                    # (kadr-sinxron handoff). Javob aynan shu pozadan boshlanadi.
+                    start_frame = None
+                    if ":" in text:
+                        try:
+                            start_frame = int(text.split(":", 1)[1])
+                        except ValueError:
+                            start_frame = None
                     cur = stt
                     stt = None
                     cur.finish()
@@ -124,7 +134,7 @@ async def realtime_ws(ws: WebSocket):
                         await send({"type": "error", "message": "Nutq aniqlanmadi — qaytadan gapiring"})
                         continue
                     await send({"type": "transcript", "text": user_text, "t": stt_t})
-                    await run_reply(user_text)
+                    await run_reply(user_text, start_frame=start_frame)
                 continue
 
             # binar PCM bo'lak → STT'ga uzatamiz

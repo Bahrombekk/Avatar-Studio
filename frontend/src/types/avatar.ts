@@ -16,6 +16,7 @@ export interface Avatar {
   language?: string;
   real?: boolean;
   hasArtifact?: boolean;
+  hasMotion?: boolean;
   hasPhoto?: boolean;
   extraMargin?: number;
   updated?: string;

@@ -257,6 +257,18 @@ def set_ready(avatar_id, ready: bool = True):
         return _load_avatar(avatar_id)
 
 
+def set_motion(avatar_id, has_motion: bool = True):
+    """Avatar config'ida hasMotion bayrog'ini o'rnatadi (2-faza: bosh-harakat
+    primitivlari qurilgach). Faqat shu maydon — boshqasiga tegmaydi."""
+    with _lock:
+        existing = _load_avatar(avatar_id)
+        if existing is None:
+            return None
+        merged = {**existing, "hasMotion": bool(has_motion), "updated": "Hozir"}
+        _save_avatar(merged)
+        return _load_avatar(avatar_id)
+
+
 def set_build(avatar_id, state: str, stage: str = None, error: str = None):
     """Avatar config'ida 'build' holatini yangilaydi (idle/MuseTalk generatsiya bosqichi).
 

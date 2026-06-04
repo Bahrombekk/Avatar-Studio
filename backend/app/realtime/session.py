@@ -23,7 +23,7 @@ def take_pending(token: str):
 
 
 def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
-                 session_id: str = None):
+                 session_id: str = None, start_frame=None):
     """Matndan javob quvuri. {text} → {stream,url} → {done}  yoki {error}.
 
     session_id — har WS ulanishiga noyob (multi-user): GPT suhbat tarixi shu kalit
@@ -80,7 +80,8 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     tts_t = round(time.time() - t, 2)
 
     with _PENDING_LOCK:
-        _PENDING[sid] = {"wav": wav, "avatar_id": avatar_id, "fps": fps}
+        _PENDING[sid] = {"wav": wav, "avatar_id": avatar_id, "fps": fps,
+                         "start_frame": start_frame}
     yield {"type": "stream", "url": f"/api/realtime/stream/{sid}",
-           "timing": {"gpt": gpt_t, "tts": tts_t}}
+           "timing": {"gpt": gpt_t, "tts": tts_t}, "start_frame": start_frame}
     yield {"type": "done"}

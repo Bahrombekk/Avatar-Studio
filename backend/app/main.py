@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routes import analytics, auth, avatars, chat, system
+from app.api.routes import analytics, auth, avatars, chat, studio, system
 from app.core.paths import FRONTEND_DIST, STATIC_DIR
 from app.realtime.ws import router as realtime_router
 from app.services.musetalk import preload_artifact, warmup
@@ -74,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(avatars.router)
     app.include_router(analytics.router)
     app.include_router(system.router)
+    app.include_router(studio.router)      # /api/studio (Video Studiya — offline render)
     app.include_router(realtime_router)    # /api/realtime/ws (alohida modul)
 
     # SPA — endi ROOT '/' da: '/' = public real-time (user), '/admin/*' = panel (login).

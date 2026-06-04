@@ -248,6 +248,27 @@ def _resolve_artifact(avatar_id):
     return None, None
 
 
+def _load_artifact_from_paths(paths) -> dict:
+    """Berilgan yo'llardan artefakt massivlarini yuklaydi (latents/coords/mask/frames).
+    PNG'lar parallel o'qiladi (cv2.imread GIL'ni bo'shatadi → tez)."""
+    import torch
+    import cv2
+    from concurrent.futures import ThreadPoolExecutor
+
+    latents = torch.load(str(paths["latents"]))
+    with open(paths["coords"], "rb") as f:
+        coords = pickle.load(f)
+    with open(paths["mask_coords"], "rb") as f:
+        mask_coords = pickle.load(f)
+    img_paths = sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))
+    mask_paths = sorted(glob.glob(str(paths["mask_dir"] / "*.png")))
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        frames = list(ex.map(cv2.imread, img_paths))
+        masks = list(ex.map(cv2.imread, mask_paths))
+    return {"latents": latents, "coords": coords, "mask_coords": mask_coords,
+            "frames": frames, "masks": masks}
+
+
 def _get_artifact(avatar_id):
     """Avatar artefaktini (keshlangan) qaytaradi. Topilmasa RuntimeError."""
     key, paths = _resolve_artifact(avatar_id)
@@ -259,37 +280,89 @@ def _get_artifact(avatar_id):
         cached = _avatars.get(key)
     if cached is not None:
         return cached
-
-    import torch
-    import cv2
-    from concurrent.futures import ThreadPoolExecutor
-
     t1 = time.time()
-    latents = torch.load(str(paths["latents"]))
-    with open(paths["coords"], "rb") as f:
-        coords = pickle.load(f)
-    with open(paths["mask_coords"], "rb") as f:
-        mask_coords = pickle.load(f)
-    # 200 kadr + 200 mask PNG — PARALLEL o'qiymiz (DrvFs'da ketma-ket o'qish sekin;
-    # cv2.imread GIL'ni bo'shatadi → parallel I/O birinchi yuklashni keskin tezlashtiradi).
-    img_paths = sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))
-    mask_paths = sorted(glob.glob(str(paths["mask_dir"] / "*.png")))
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        frames = list(ex.map(cv2.imread, img_paths))
-        masks = list(ex.map(cv2.imread, mask_paths))
-
-    art = {"latents": latents, "coords": coords, "mask_coords": mask_coords,
-           "frames": frames, "masks": masks}
+    art = _load_artifact_from_paths(paths)
     with _avatars_lock:
         _avatars[key] = art
-    print(f"[LP-MuseTalk] Artefakt '{key}': {len(frames)} kadr ({time.time()-t1:.1f}s)")
+    print(f"[LP-MuseTalk] Artefakt '{key}': {len(art['frames'])} kadr ({time.time()-t1:.1f}s)")
     return art
+
+
+# ── 2-faza: harakat primitivlari (nod/tilt/.../neutral) keshi + yig'uvchi ──
+_motion = {}   # (avatar_id, mtype) → artefakt
+
+
+def _get_motion_artifact(avatar_id, mtype):
+    """Harakat primitivi artefaktini (keshlangan) yuklaydi (motion/<type>/)."""
+    key = (avatar_id, mtype)
+    with _avatars_lock:
+        c = _motion.get(key)
+    if c is not None:
+        return c
+    from app.core.paths import avatar_motion_artifact
+    d = avatar_motion_artifact(avatar_id, mtype)
+    if not (d / "latents.pt").is_file():
+        raise RuntimeError(f"Harakat artefakti yo'q: {mtype} (avval qayta quring)")
+    paths = {"latents": d / "latents.pt", "coords": d / "coords.pkl",
+             "mask_coords": d / "mask_coords.pkl", "imgs_dir": d / "full_imgs",
+             "mask_dir": d / "mask"}
+    art = _load_artifact_from_paths(paths)
+    with _avatars_lock:
+        _motion[key] = art
+    return art
+
+
+def assemble_motion_artifact(avatar_id, sequence) -> dict:
+    """sequence = harakat turlari ro'yxati (masalan ['neutral','nod','neutral']) →
+    ularning massivlarini KETMA-KET ulaydi (bitta assembled artefakt). Har primitiv
+    neytralda boshlanib-tugagani uchun chegaralar silliq."""
+    L, C, MC, F, M = [], [], [], [], []
+    for mt in sequence:
+        a = _get_motion_artifact(avatar_id, mt)
+        L += list(a["latents"]); C += list(a["coords"]); MC += list(a["mask_coords"])
+        F += list(a["frames"]); M += list(a["masks"])
+    return {"latents": L, "coords": C, "mask_coords": MC, "frames": F, "masks": M}
+
+
+def _resample_artifact(art, k):
+    """Artefakt massivlaridan k kadr tanlaydi (silliq qayta namuna). speed nazorati:
+    primitivni kamroq kadrga (tez) yoki ko'proq kadrga (sekin) cho'zish."""
+    n = len(art["frames"])
+    if k <= 0 or n == 0:
+        return {kk: [] for kk in ("latents", "coords", "mask_coords", "frames", "masks")}
+    if n == k:
+        idxs = range(n)
+    else:
+        idxs = [min(n - 1, round(i * (n - 1) / max(1, k - 1))) for i in range(k)]
+    return {kk: [art[kk][j] for j in idxs]
+            for kk in ("latents", "coords", "mask_coords", "frames", "masks")}
+
+
+def assemble_motion_timeline(avatar_id, units) -> dict:
+    """units = [(mtype, n_frames), ...] → har primitivni n_frames ga RESAMPLE qilib
+    ulaydi → kadr-aniq (audio bilan mos) bosh-harakat timeline'i. Chegaralar neytral."""
+    L, C, MC, F, M = [], [], [], [], []
+    for mt, k in units:
+        if k <= 0:
+            continue
+        r = _resample_artifact(_get_motion_artifact(avatar_id, mt), int(k))
+        L += r["latents"]; C += r["coords"]; MC += r["mask_coords"]
+        F += r["frames"]; M += r["masks"]
+    return {"latents": L, "coords": C, "mask_coords": MC, "frames": F, "masks": M}
+
+
+def has_motion(avatar_id, mtype="neutral") -> bool:
+    """Avatar uchun harakat primitivi artefakti mavjudmi."""
+    from app.core.paths import avatar_motion_artifact
+    return (avatar_motion_artifact(avatar_id, mtype) / "latents.pt").is_file()
 
 
 def invalidate(avatar_id):
     """Avatar artefakt keshini bo'shatadi (preprocessing qayta yasalgach)."""
     with _avatars_lock:
         _avatars.pop(avatar_id, None)
+        for k in [k for k in _motion if k[0] == avatar_id]:
+            _motion.pop(k, None)
 
 
 def warmup():
@@ -332,7 +405,12 @@ def preload_artifact(avatar_id: str) -> bool:
         return False
 
 
-def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None) -> bool:
+def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None,
+                   hd: bool = False, artifact: dict = None) -> bool:
+    """To'liq video fayl (offline). hd=True → kuchliroq tiniqlik (Video Studiya).
+    artifact berilsa — o'sha (assembled, bosh harakatli) artefakt ishlatiladi
+    (avatar_id keshidan emas). 2-faza: harakat dvigateli shu orqali ulanadi.
+    (HD yuz tiklash — GFPGAN — keyingi bosqichda shu yerga ulanadi.)"""
     import torch
     import cv2
     import numpy as np
@@ -341,6 +419,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
     from musetalk.utils.blending import get_image_blending
 
     ensure_loaded()
+    _hd_sharpen = _SHARPEN * 1.6 if hd else _SHARPEN
     _prof = os.environ.get("RT_PROFILE") == "1"
     _pt = time.time()
 
@@ -353,9 +432,9 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             _pt = time.time()
 
     try:
-        art = _get_artifact(avatar_id)
-        # Harakat takrorlanmasin: sikl tasodifiy nuqtadan (barchasi bir xil ofset).
-        _start = _cycle_start(len(art["frames"]))
+        # artifact berilsa (assembled, bosh harakatli) — aylantirmaymiz (tartib muhim).
+        art = artifact if artifact is not None else _get_artifact(avatar_id)
+        _start = 0 if artifact is not None else _cycle_start(len(art["frames"]))
         _input_latent_list_cycle = _rotate(art["latents"], _start)
         _coord_list_cycle = _rotate(art["coords"], _start)
         _mask_coords_list_cycle = _rotate(art["mask_coords"], _start)
@@ -402,7 +481,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             try:
                 rf = cv2.resize(res_frame_list[idx].astype(np.uint8), (x2 - x1, y2 - y1),
                                 interpolation=cv2.INTER_LANCZOS4)
-                rf = _sharpen_region(rf, _SHARPEN)
+                rf = _sharpen_region(rf, _hd_sharpen)
             except Exception:
                 return None
             mask = _mask_list_cycle[cycle_idx]
@@ -460,13 +539,17 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         return False
 
 
-def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
+def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
+                          start_frame=None):
     """STREAMING variant: kadrlarni generatsiya paytida fragmented-mp4 bayt
     bo'laklari sifatida yieldlaydi (eski musetalk_infer'ga TEGILMAYDI — additiv).
 
+    start_frame: artefakt siklining boshlanish kadri (KADR-SINXRON HANDOFF).
+      Frontend jonli idle videosi qaysi kadrda turganini yuboradi → javob aynan
+      shu pozadan boshlanadi → idle→javob o'tishida bosh/ko'z SAKRAMAYDI.
+      None bo'lsa tasodifiy (RT_VARY_MOTION) — eski xulq.
+
     ffmpeg fragmented mp4 (frag_keyframe+empty_moov) — brauzer progressive o'ynaydi.
-    Yozuvchi thread kadrlarni stdin'ga yozadi; generator stdout'dan o'qib uzatadi
-    (deadlock yo'q). Kadrlar BATCH bo'yicha parallel composit qilinib, tartibda yoziladi.
     """
     import torch
     import cv2
@@ -478,8 +561,12 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
 
     ensure_loaded()
     art = _get_artifact(avatar_id)
-    # Harakat takrorlanmasin: sikl tasodifiy nuqtadan (barcha massiv bir xil ofset).
-    _start = _cycle_start(len(art["frames"]))
+    # Sikl boshlanishi: frontend bergan kadr (handoff) yoki tasodifiy.
+    _n_cycle = len(art["frames"])
+    if start_frame is None:
+        _start = _cycle_start(_n_cycle)
+    else:
+        _start = int(start_frame) % _n_cycle if _n_cycle else 0
     latents = _rotate(art["latents"], _start)
     coords = _rotate(art["coords"], _start)
     mask_coords = _rotate(art["mask_coords"], _start)
@@ -560,6 +647,8 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
         frame_q.put(None)
 
     def consumer():
+        last_fr = None
+        last_idx = -1
         try:
             while True:
                 item = frame_q.get()
@@ -569,6 +658,19 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
                 fr = _composite(idx, rf)
                 if fr is not None:
                     proc.stdin.write(fr.astype(np.uint8).tobytes())
+                    last_fr = fr
+                    last_idx = idx
+            # OG'IZ YUMSHOQ YOPILISHI: oxirgi nutq kadridan idle (yopiq og'iz)
+            # kadrlariga crossfade — bosh pozasi davom etadi, og'iz tabiiy yopiladi
+            # (keskin "pop" o'rniga). idle→handoff frontend'da silliq ulanadi.
+            if last_fr is not None and len(frames) > 0:
+                n_tail = 7
+                ncyc = len(frames)
+                for k in range(1, n_tail + 1):
+                    idle_fr = frames[(last_idx + k) % ncyc]
+                    alpha = k / (n_tail + 1)
+                    blended = cv2.addWeighted(last_fr, 1.0 - alpha, idle_fr, alpha, 0)
+                    proc.stdin.write(blended.astype(np.uint8).tobytes())
         except Exception as e:  # noqa: BLE001
             print(f"[LP-MuseTalk stream consumer ERR] {e}")
         finally:

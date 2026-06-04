@@ -63,3 +63,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Video Studiya render natijalari + zaxiralar (lokal, katta)
+backend/data/renders/
+*.mp4.bak

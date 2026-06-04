@@ -18,10 +18,13 @@ MT_DIR = Path(os.environ.get("MT_DIR", str(_PROJECT_ROOT / "models" / "MuseTalk"
 AVATAR_ID = "madina_lp"
 AVATAR_DIR = MT_DIR / f"results/v15/avatars/{AVATAR_ID}"
 
-# ── LivePortrait (idle generatsiya, alohida conda muhitida ishlaydi) ──
+# ── LivePortrait (idle/harakat generatsiya, alohida conda muhitida ishlaydi) ──
 # Standart: loyiha ichidagi models/LivePortrait; LP_DIR env bilan bekor qilsa bo'ladi.
 LP_DIR = Path(os.environ.get("LP_DIR", str(_PROJECT_ROOT / "models" / "LivePortrait")))
-LP_GEN_IDLE = LP_DIR / "gen_idle.py"
+# gen_idle.py — bizning maxsus skriptimiz (idle + bosh-harakat primitivlari). U
+# ASOSIY repoda (backend/scripts/) saqlanadi — submodule'da emas (qayta o'rnatishda
+# yo'qolmasligi uchun). LivePortrait kutubxonasi PYTHONPATH=LP_DIR orqali topiladi.
+LP_GEN_IDLE = BACKEND_DIR / "scripts" / "gen_idle.py"
 
 AVATAR_LATENTS = AVATAR_DIR / "latents.pt"
 AVATAR_COORDS = AVATAR_DIR / "coords.pkl"
@@ -51,6 +54,16 @@ INSIGHTFACE_ROOT = Path(
 #   data/avatars/<id>/voices/<voice>/videos/<eid>.mp4   → kesh videolari
 REGISTRY_FILE = DATA_DIR / "registry.json"
 AVATARS_DIR = DATA_DIR / "avatars"
+
+# ── Video Studiya (offline HD render kutubxonasi, HeyGen uslubi) ──
+#   data/renders/index.json          → render meta ro'yxati (eng yangi birinchi)
+#   data/renders/<render_id>.mp4      → tayyor video
+RENDERS_DIR = DATA_DIR / "renders"
+RENDERS_INDEX = RENDERS_DIR / "index.json"
+
+
+def render_file(render_id: str) -> Path:
+    return RENDERS_DIR / f"{render_id}.mp4"
 
 # Avatar tanlanmagan (default) so'rovlar uchun psevdo-avatar papkasi.
 DEFAULT_SCOPE = "_default"
@@ -99,6 +112,21 @@ def avatar_idle_file(avatar_id: str) -> Path:
     return avatar_dir(avatar_id) / "idle.mp4"
 
 
+def avatar_motion_dir(avatar_id: str) -> Path:
+    """Harakat primitivlari papkasi (nod/tilt/.../neutral klip + artefaktlari)."""
+    return avatar_dir(avatar_id) / "motion"
+
+
+def avatar_motion_clip(avatar_id: str, mtype: str) -> Path:
+    """Primitiv harakat klipi (LivePortrait chiqishi): motion/<type>.mp4."""
+    return avatar_motion_dir(avatar_id) / f"{mtype}.mp4"
+
+
+def avatar_motion_artifact(avatar_id: str, mtype: str) -> Path:
+    """Primitiv MuseTalk artefakti: motion/<type>/ (latents/coords/mask/full_imgs)."""
+    return avatar_motion_dir(avatar_id) / mtype
+
+
 def avatar_artifact_dir(avatar_id: str) -> Path:
     """MuseTalk preprocessing natijasi (latents.pt, coords.pkl, mask/, full_imgs/, ...).
 
@@ -129,7 +157,7 @@ VID_OUT_DIR = Path("/tmp/lp_avatar_videos")
 PROJECT_ROOT = BACKEND_DIR.parent
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
-for _d in (DATA_DIR, AVATARS_DIR, CHECKPOINTS_DIR, TEMP_DIR, VID_OUT_DIR):
+for _d in (DATA_DIR, AVATARS_DIR, CHECKPOINTS_DIR, TEMP_DIR, VID_OUT_DIR, RENDERS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # MuseTalk paketini import qilish uchun sys.path ga qo'shamiz.
