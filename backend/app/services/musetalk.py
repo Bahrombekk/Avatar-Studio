@@ -8,6 +8,7 @@ eski madina_lp artefakti (MT_DIR) fallback bo'ladi. Yuklangan artefaktlar keshla
 import glob
 import os
 import pickle
+import random
 import subprocess
 import threading
 import time
@@ -55,6 +56,52 @@ _gpu_sem = threading.BoundedSemaphore(_GPU_SLOTS)
 # band → tezroq (sifat O'ZGARMAYDI — faqat guruhlash). RTX 5090 32GB kattasini
 # ko'taradi. Sozlash: MT_BATCH (default 16).
 _BATCH = max(1, int(os.environ.get("MT_BATCH", "16")))
+
+# Og'iz tiniqligi: MuseTalk og'izni 256x256'da yaratadi, keyin yuz o'lchamiga
+# kattalashtiriladi → yumshaydi. Yengil unsharp (nimqilich) + sifatli upscale
+# (INTER_CUBIC) buni qisman qoplaydi (tezlikka deyarli ta'sirsiz). 0 = o'chiq.
+# Halol: tub yechim emas (256 cheklovi), lekin bepul tiniqlik beradi.
+_SHARPEN = max(0.0, float(os.environ.get("RT_SHARPEN", "0.55")))
+
+# Lab↔ovoz vaqt mosligi: doimiy ofset (sekund). MuseTalk drift bermaydi (kadr
+# soni = audio×fps aniq), lekin lab biroz oldinda/orqada tuyulsa shu bilan nudge.
+# +qiymat → ovoz KECHIKADI (lab oldin harakatlansa); -qiymat → ovoz OLDINGA.
+_AUDIO_OFFSET = float(os.environ.get("RT_AUDIO_OFFSET", "0"))
+
+
+def _audio_offset_args():
+    """ffmpeg audio kirishidan oldin -itsoffset (0 bo'lsa bo'sh)."""
+    return ["-itsoffset", f"{_AUDIO_OFFSET}"] if _AUDIO_OFFSET else []
+
+
+def _sharpen_region(img, amount):
+    """Yengil unsharp mask (cv2 GIL'ni bo'shatadi → arzon). amount<=0 → o'zgarishsiz."""
+    if amount <= 0:
+        return img
+    import cv2
+    blur = cv2.GaussianBlur(img, (0, 0), 1.0)
+    return cv2.addWeighted(img, 1.0 + amount, blur, -amount, 0)
+
+
+# Harakat takrorlanmasin: har generatsiya sikl kadrlarini TASODIFIY nuqtadan
+# boshlaydi → har javob boshqa bosh pozasi/harakatdan ochiladi. Barcha massivlar
+# (latent/coord/mask/frame) BIR XIL ofsetga aylantiriladi → moslik buzilmaydi.
+# RT_VARY_MOTION=0 → o'chiq (har doim 0-kadr).
+_VARY_MOTION = os.environ.get("RT_VARY_MOTION", "1") != "0"
+
+
+def _rotate(seq, start):
+    """Ro'yxatni `start` nuqtadan aylantiradi (yangi ro'yxat — kesh buzilmaydi)."""
+    if start <= 0:
+        return seq
+    return seq[start:] + seq[:start]
+
+
+def _cycle_start(n):
+    """Sikl uchun tasodifiy boshlanish indeksi (RT_VARY_MOTION o'chiq bo'lsa 0)."""
+    if not _VARY_MOTION or n <= 1:
+        return 0
+    return random.randint(0, n - 1)
 
 
 @contextmanager
@@ -307,11 +354,13 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
 
     try:
         art = _get_artifact(avatar_id)
-        _input_latent_list_cycle = art["latents"]
-        _coord_list_cycle = art["coords"]
-        _mask_coords_list_cycle = art["mask_coords"]
-        _frame_list_cycle = art["frames"]
-        _mask_list_cycle = art["masks"]
+        # Harakat takrorlanmasin: sikl tasodifiy nuqtadan (barchasi bir xil ofset).
+        _start = _cycle_start(len(art["frames"]))
+        _input_latent_list_cycle = _rotate(art["latents"], _start)
+        _coord_list_cycle = _rotate(art["coords"], _start)
+        _mask_coords_list_cycle = _rotate(art["mask_coords"], _start)
+        _frame_list_cycle = _rotate(art["frames"], _start)
+        _mask_list_cycle = _rotate(art["masks"], _start)
         _lap("artefakt")
 
         # 1. Whisper audio xususiyatlari
@@ -351,7 +400,9 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             ori_frame = _frame_list_cycle[cycle_idx].copy()
             x1, y1, x2, y2 = bbox
             try:
-                rf = cv2.resize(res_frame_list[idx].astype(np.uint8), (x2 - x1, y2 - y1))
+                rf = cv2.resize(res_frame_list[idx].astype(np.uint8), (x2 - x1, y2 - y1),
+                                interpolation=cv2.INTER_LANCZOS4)
+                rf = _sharpen_region(rf, _SHARPEN)
             except Exception:
                 return None
             mask = _mask_list_cycle[cycle_idx]
@@ -385,7 +436,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         proc = subprocess.Popen([
             "ffmpeg", "-y", "-v", "warning",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps),
-            "-i", "-", "-i", wav_path,
+            "-i", "-", *_audio_offset_args(), "-i", wav_path,
             *_venc_args(fps),
             "-af", "apad", "-c:a", "aac", "-shortest", out_mp4,
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -427,11 +478,13 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
 
     ensure_loaded()
     art = _get_artifact(avatar_id)
-    latents = art["latents"]
-    coords = art["coords"]
-    mask_coords = art["mask_coords"]
-    frames = art["frames"]
-    masks = art["masks"]
+    # Harakat takrorlanmasin: sikl tasodifiy nuqtadan (barcha massiv bir xil ofset).
+    _start = _cycle_start(len(art["frames"]))
+    latents = _rotate(art["latents"], _start)
+    coords = _rotate(art["coords"], _start)
+    mask_coords = _rotate(art["mask_coords"], _start)
+    frames = _rotate(art["frames"], _start)
+    masks = _rotate(art["masks"], _start)
 
     whisper_input_features, librosa_length = _audio_processor.get_audio_feature(
         wav_path, weight_dtype=_weight_dtype
@@ -446,7 +499,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
     proc = subprocess.Popen([
         "ffmpeg", "-y", "-v", "error",
         "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
-        "-i", wav_path,
+        *_audio_offset_args(), "-i", wav_path,
         "-map", "0:v", "-map", "1:a",
         # Video kodlovchi (odatda libx264 crf18; o'lchov: stream'da ffmpeg GPU ostida
         # to'liq yashiringan — bottleneck emas, shuning uchun NVENC kerak emas).
@@ -459,7 +512,9 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
         x1, y1, x2, y2 = coords[ci]
         ori = frames[ci].copy()
         try:
-            rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1))
+            rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1),
+                            interpolation=cv2.INTER_LANCZOS4)
+            rf = _sharpen_region(rf, _SHARPEN)
         except Exception:
             return None
         return get_image_blending(ori, rf, [x1, y1, x2, y2], masks[ci], mask_coords[ci])

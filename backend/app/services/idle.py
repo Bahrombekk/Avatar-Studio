@@ -18,7 +18,8 @@ from app.core.paths import (
 )
 from app.services import avatar_store
 
-IDLE_DURATION = 4.0     # sekund (MuseTalk forward+backward loop qiladi)
+IDLE_DURATION = 8.0     # sekund — uzunroq klip → harakat kamroq takrorlanadi
+                        # (MuseTalk forward+backward loop qiladi; artefakt kattaroq)
 TIMEOUT_SEC = 600       # 10 daqiqa — generatsiya bundan oshmasligi kerak
 
 
