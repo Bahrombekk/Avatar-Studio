@@ -13,10 +13,10 @@
   },
   "voice": "sardor",
   "language": "uz",
-  "extraMargin": 12,
+  "extraMargin": 18,
   "fps": 25,
-  "blinkRate": 5,
-  "headMotion": 0.3,
+  "blinkRate": 6,
+  "headMotion": 0.6,
   "persona": "O'zbekiston temir yo'llariga doir malumot berasan faqat to'lliqroq so'rasa to'lliqroq malumot berasan",
   "respLen": "medium",
   "temperature": 0.4,
@@ -27,9 +27,11 @@
   "updated": "Hozir",
   "build": {
     "state": "done",
-    "stage": "musetalk_prep",
+    "stage": "motion",
     "error": null,
-    "updated": "2026-06-02T08:44:13.926951+00:00"
+    "updated": "2026-06-05T07:51:49.279743+00:00"
   },
-  "hasArtifact": true
+  "hasArtifact": true,
+  "hasMotion": true,
+  "maxDim": 1280
 }

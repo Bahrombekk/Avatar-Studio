@@ -34,6 +34,17 @@ def _python_bin() -> str:
     return os.environ.get("LP_PYTHON") or sys.executable
 
 
+def _avatar_max_dim(av: dict) -> int:
+    """Avatar build rezolyutsiyasi (LivePortrait manba uzun tomoni, piksel):
+    1280 = 720p (tez — real-time uchun), 1920 = 1080p (sifat — Studio uchun).
+    avatar.json'dagi 'maxDim' bilan boshqariladi (admin panel). Default 1280 (tez)."""
+    try:
+        v = int((av or {}).get("maxDim", 1280))
+    except (TypeError, ValueError):
+        v = 1280
+    return v if v in (1280, 1920) else 1280
+
+
 def generate_idle(avatar_id: str) -> str:
     """Avatar portretidan idle.mp4 yasaydi. Xato bo'lsa RuntimeError ko'taradi."""
     av = avatar_store.get_avatar(avatar_id)
@@ -76,6 +87,7 @@ def generate_idle(avatar_id: str) -> str:
     # segfault (kod -11) keltiradi. Subprocess uchun faqat LP_DIR qoldiramiz.
     env = os.environ.copy()
     env["PYTHONPATH"] = str(LP_DIR)
+    env["RT_SOURCE_MAX_DIM"] = str(_avatar_max_dim(av))   # per-avatar 720/1080 tanlovi
     proc = subprocess.run(cmd, cwd=str(LP_DIR), capture_output=True,
                           text=True, timeout=TIMEOUT_SEC, env=env)
     if proc.returncode != 0:
@@ -110,6 +122,7 @@ def generate_motion_clips(avatar_id: str) -> str:
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(LP_DIR)
+    env["RT_SOURCE_MAX_DIM"] = str(_avatar_max_dim(av))   # per-avatar 720/1080 tanlovi
     proc = subprocess.run(cmd, cwd=str(LP_DIR), capture_output=True,
                           text=True, timeout=TIMEOUT_SEC, env=env)
     if proc.returncode != 0:

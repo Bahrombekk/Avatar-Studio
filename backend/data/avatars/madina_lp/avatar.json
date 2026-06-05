@@ -16,7 +16,7 @@
   "extraMargin": 16,
   "fps": 25,
   "blinkRate": 4,
-  "headMotion": 0.45,
+  "headMotion": 0.6,
   "persona": "",
   "respLen": "short",
   "temperature": 0.4,
@@ -29,5 +29,13 @@
     "Toshkent–Samarqand poyezdi",
     "Bagaj qoidalari"
   ],
-  "updated": "Hozir"
+  "updated": "Hozir",
+  "build": {
+    "state": "done",
+    "stage": "motion",
+    "error": null,
+    "updated": "2026-06-05T07:43:56.158543+00:00"
+  },
+  "hasMotion": true,
+  "maxDim": 1280
 }

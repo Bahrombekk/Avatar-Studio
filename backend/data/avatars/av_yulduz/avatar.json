@@ -31,10 +31,11 @@
   "updated": "Hozir",
   "build": {
     "state": "done",
-    "stage": "motion",
+    "stage": "musetalk_prep",
     "error": null,
-    "updated": "2026-06-04T13:59:07.505736+00:00"
+    "updated": "2026-06-05T08:42:55.263881+00:00"
   },
   "hasArtifact": true,
-  "hasMotion": true
+  "hasMotion": true,
+  "maxDim": 1920
 }

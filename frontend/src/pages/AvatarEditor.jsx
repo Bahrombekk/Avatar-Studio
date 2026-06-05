@@ -29,7 +29,7 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
     id: "new", name: "Yangi avatar", role: "Virtual yordamchi", brand: "O‘zbekiston Temir Yo‘llari",
     brandShort: "UTY", status: "draft", accent: "#B98944",
     portrait: { ...GRADIENTS[0], initials: "Y" },
-    voice: "madina", language: "uz", extraMargin: 16, fps: 25,
+    voice: "madina", language: "uz", extraMargin: 16, fps: 25, maxDim: 1280,
     blinkRate: 4, headMotion: 0.45, persona: "", sessions: 0, avgLatency: 0, cacheRate: 0, csat: 0,
     suggestions: ["", "", ""], updated: "Bugun", respLen: "short", temperature: 0.4,
     speechRate: 0, hasPhoto: false,
@@ -365,6 +365,11 @@ function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle,
             options={[{value:"20",label:"20"},{value:"25",label:"25"},{value:"30",label:"30"}]} />
         </Field>
       </Row2>
+
+      <Field label="Sifat / Tezlik" hint="720p = tezroq (real-time suhbat uchun); 1080p = tiniqroq (Video Studiya uchun, lekin sekinroq). O‘zgartirsangiz Idle + Model qayta qurilsin.">
+        <Segmented value={String(draft.maxDim || 1280)} onChange={(v) => set({ maxDim: parseInt(v) })}
+          options={[{value:"1280",label:"Tez · 720p"},{value:"1920",label:"Sifat · 1080p"}]} />
+      </Field>
 
       <Field label="1-qadam · Idle video" hint="Portretdan blink animatsiyasi yaratadi. Parametrlarni o‘zgartirsangiz qayta yarating.">
         <div className="ed-idle">

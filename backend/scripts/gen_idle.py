@@ -121,6 +121,20 @@ def partial_fields(target_class, kwargs):
 def build_pipeline():
     sys.argv = ["app.py"]  # tyro ArgumentConfig default qiymatlar bilan
     args = tyro.cli(ArgumentConfig)
+    # Chiqish rezolyutsiyasi: prepare_retargeting_image() manbani max_dim=1280 ga
+    # QATTIQ kichraytiradi (source_max_dim'ni o'qimaydi) → 720p chiqardi. Submodule'ni
+    # o'zgartirmasdan, o'sha funksiya ishlatadigan load_img_online'ni monkeypatch
+    # qilamiz → 1920 (1080p). RT_SOURCE_MAX_DIM env bilan boshqarish mumkin.
+    _maxdim = int(os.environ.get("RT_SOURCE_MAX_DIM", "1920"))
+    args.source_max_dim = _maxdim
+    try:
+        import src.gradio_pipeline as _gpmod
+        _orig_load = _gpmod.load_img_online
+        def _load_hi(image, mode="rgb", max_dim=1280, n=2):  # noqa: ANN001
+            return _orig_load(image, mode=mode, max_dim=_maxdim, n=n)
+        _gpmod.load_img_online = _load_hi
+    except Exception as _e:  # noqa: BLE001
+        print(f"[gen_idle] load_img_online patch o'tkazildi: {_e}")
     inference_cfg = partial_fields(InferenceConfig, args.__dict__)
     crop_cfg = partial_fields(CropConfig, args.__dict__)
     return GradioPipeline(inference_cfg=inference_cfg, crop_cfg=crop_cfg, args=args)
