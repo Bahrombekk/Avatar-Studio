@@ -141,6 +141,17 @@ def build_musetalk(avatar_id: str, _: bool = Admin):
             musetalk.preload_artifact(avatar_id)
         except Exception:
             pass
+        # Bosh-harakat primitivlarini ham AVTOMATIK quramiz — yangi avatar darrov
+        # Video Studiyada bosh harakati bilan tayyor bo'lsin (qo'lda alohida qadam
+        # shart emas). Xato bo'lsa avatar baribir ishlaydi (faqat motionsiz).
+        if avatar_portrait_file(avatar_id).is_file():
+            try:
+                idle.generate_motion_clips(avatar_id)
+                preprocess.preprocess_motion_all_subprocess(avatar_id)
+                musetalk.invalidate(avatar_id)
+                avatar_store.set_motion(avatar_id, True)
+            except Exception as e:  # noqa: BLE001
+                print(f"[build-musetalk] motion auto-build o'tkazildi (xato): {e}")
 
     started = jobs.start(avatar_id, "musetalk_prep", _rebuild)
     if not started:
