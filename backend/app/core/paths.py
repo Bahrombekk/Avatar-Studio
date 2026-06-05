@@ -65,6 +65,17 @@ RENDERS_INDEX = RENDERS_DIR / "index.json"
 def render_file(render_id: str) -> Path:
     return RENDERS_DIR / f"{render_id}.mp4"
 
+
+# ── Tayyor javoblar (pre-rendered Q&A — real-time'da savol mosligi bo'yicha o'ynaladi) ──
+#   data/canned/index.json       → tayyor javoblar meta (savol variantlari + javob)
+#   data/canned/<id>.mp4         → tayyor javob videosi
+CANNED_DIR = DATA_DIR / "canned"
+CANNED_INDEX = CANNED_DIR / "index.json"
+
+
+def canned_file(canned_id: str) -> Path:
+    return CANNED_DIR / f"{canned_id}.mp4"
+
 # Avatar tanlanmagan (default) so'rovlar uchun psevdo-avatar papkasi.
 DEFAULT_SCOPE = "_default"
 
@@ -157,7 +168,7 @@ VID_OUT_DIR = Path("/tmp/lp_avatar_videos")
 PROJECT_ROOT = BACKEND_DIR.parent
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
-for _d in (DATA_DIR, AVATARS_DIR, CHECKPOINTS_DIR, TEMP_DIR, VID_OUT_DIR, RENDERS_DIR):
+for _d in (DATA_DIR, AVATARS_DIR, CHECKPOINTS_DIR, TEMP_DIR, VID_OUT_DIR, RENDERS_DIR, CANNED_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # MuseTalk paketini import qilish uchun sys.path ga qo'shamiz.

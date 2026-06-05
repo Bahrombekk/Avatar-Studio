@@ -272,23 +272,94 @@ def _load_artifact_from_paths(paths) -> dict:
             "frames": frames, "masks": masks}
 
 
-def _get_artifact(avatar_id):
-    """Avatar artefaktini (keshlangan) qaytaradi. Topilmasa RuntimeError."""
+def use_max_dim(avatar) -> int:
+    """Avatar ISHLATISH (output) rezolyutsiyasi: 1280 (tez/720p) yoki 1920 (sifat/1080p).
+    avatar.json 'maxDim' bilan boshqariladi — BIR ZUMDA o'zgaradi, qayta qurish SHART
+    EMAS. Artefakt har doim 1920 bazada quriladi; bu yerda kerakli o'lchamga
+    KICHRAYTIRILADI (latent'lar 256 og'iz — rezolyutsiyadan mustaqil)."""
+    try:
+        v = int((avatar or {}).get("maxDim", 1280))
+    except (TypeError, ValueError):
+        v = 1280
+    return v if v in (1280, 1920) else 1280
+
+
+def _target_ratio(art, max_dim) -> float:
+    """Artefakt kadrining uzun tomonini max_dim'ga keltirish nisbati (<=1.0).
+    max_dim yo'q yoki kadr allaqachon kichik bo'lsa 1.0 (kichraytirish yo'q;
+    UPSCALE qilinmaydi — 1280 bazadan 1080 yasab bo'lmaydi)."""
+    frames = art.get("frames") or []
+    if not max_dim or not frames:
+        return 1.0
+    h, w = frames[0].shape[:2]
+    long = max(h, w)
+    if long <= int(max_dim):
+        return 1.0
+    return int(max_dim) / float(long)
+
+
+def _downscale_artifact(art, ratio) -> dict:
+    """Artefaktni `ratio` (<1) bo'yicha kichraytiradi — full_imgs/mask rasm o'lchami,
+    coords/mask_coords koordinatalari proporsional masshtablanadi. LATENT'lar (256
+    og'iz) O'ZGARMAYDI. Og'iz inference paytida 256'dan kichikroq bbox'ga tushadi
+    → tabiiy tiniqlik + tezroq composite (native-720'ga teng natija)."""
+    import cv2
+    if ratio >= 0.999:
+        return art
+    keys = ("latents", "coords", "mask_coords", "frames", "masks")
+    n = len(art["frames"])
+    frames, masks, coords, mcoords = [], [], [], []
+    for i in range(n):
+        f = art["frames"][i]
+        h, w = f.shape[:2]
+        nw, nh = max(2, int(round(w * ratio))), max(2, int(round(h * ratio)))
+        frames.append(cv2.resize(f, (nw, nh), interpolation=cv2.INTER_AREA))
+        nc = [int(round(float(v) * ratio)) for v in art["coords"][i]]
+        nmc = [int(round(float(v) * ratio)) for v in art["mask_coords"][i]]
+        coords.append(nc)
+        mcoords.append(nmc)
+        # Mask o'lchami crop_box (mask_coords) o'lchamiga AYNAN teng bo'lishi shart
+        # (PIL paste mask buni talab qiladi) — masshtablangan crop_box'dan hisoblaymiz.
+        mw = max(1, nmc[2] - nmc[0])
+        mh = max(1, nmc[3] - nmc[1])
+        masks.append(cv2.resize(art["masks"][i], (mw, mh), interpolation=cv2.INTER_AREA))
+    return {"latents": art["latents"], "coords": coords, "mask_coords": mcoords,
+            "frames": frames, "masks": masks}
+
+
+def _get_artifact(avatar_id, max_dim=None):
+    """Avatar artefaktini (keshlangan) qaytaradi. max_dim berilsa — o'sha output
+    rezolyutsiyasiga kichraytirilgan variant (alohida keshlanadi). Topilmasa RuntimeError."""
     key, paths = _resolve_artifact(avatar_id)
     if key is None:
         raise RuntimeError(
             "Avatar artefakti topilmadi — avval MuseTalk preprocessing bajaring"
         )
     with _avatars_lock:
-        cached = _avatars.get(key)
-    if cached is not None:
-        return cached
-    t1 = time.time()
-    art = _load_artifact_from_paths(paths)
+        native = _avatars.get(key)
+    if native is None:
+        t1 = time.time()
+        native = _load_artifact_from_paths(paths)
+        with _avatars_lock:
+            _avatars[key] = native
+        print(f"[LP-MuseTalk] Artefakt '{key}': {len(native['frames'])} kadr ({time.time()-t1:.1f}s)")
+    if not max_dim:
+        return native
+    ratio = _target_ratio(native, max_dim)
+    if ratio >= 0.999:
+        return native   # baza allaqachon shu o'lchamda (yoki kichikroq)
+    skey = (key, int(max_dim))
     with _avatars_lock:
-        _avatars[key] = art
-    print(f"[LP-MuseTalk] Artefakt '{key}': {len(art['frames'])} kadr ({time.time()-t1:.1f}s)")
-    return art
+        scaled = _avatars.get(skey)
+    if scaled is not None:
+        return scaled
+    t2 = time.time()
+    scaled = _downscale_artifact(native, ratio)
+    with _avatars_lock:
+        _avatars[skey] = scaled
+    print(f"[LP-MuseTalk] Artefakt '{key}' @{max_dim} ({ratio:.3f}x): "
+          f"{len(scaled['frames'])} kadr ({time.time()-t2:.1f}s)")
+    return scaled
 
 
 # ── 2-faza: harakat primitivlari (nod/tilt/.../neutral) keshi + yig'uvchi ──
@@ -376,9 +447,12 @@ def has_motion(avatar_id, mtype="neutral") -> bool:
 
 
 def invalidate(avatar_id):
-    """Avatar artefakt keshini bo'shatadi (preprocessing qayta yasalgach)."""
+    """Avatar artefakt keshini bo'shatadi (preprocessing qayta yasalgach) —
+    native + barcha kichraytirilgan (max_dim) variantlar."""
     with _avatars_lock:
-        _avatars.pop(avatar_id, None)
+        for k in [k for k in _avatars
+                  if k == avatar_id or (isinstance(k, tuple) and k[0] == avatar_id)]:
+            _avatars.pop(k, None)
         for k in [k for k in _motion if k[0] == avatar_id]:
             _motion.pop(k, None)
 
@@ -408,15 +482,16 @@ def warmup():
     print(f"[LP-MuseTalk] Warmup: {time.time()-t:.1f}s")
 
 
-def preload_artifact(avatar_id: str) -> bool:
+def preload_artifact(avatar_id: str, max_dim=None) -> bool:
     """Avatar artefaktini (200 kadr/mask PNG) keshга oldindan yuklaydi.
 
     Birinchi so'rov sekin bo'lmasligi uchun startupda chaqiriladi — aks holda
     foydalanuvchining BIRINCHI savolida artefakt diskdan (sekin DrvFs) o'qiladi.
+    max_dim berilsa — ishlatiladigan (kichraytirilgan) variant ham isitiladi.
     """
     try:
         ensure_loaded()
-        _get_artifact(avatar_id)
+        _get_artifact(avatar_id, max_dim)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[LP-MuseTalk] preload '{avatar_id}' ogohlantirish: {e}")
@@ -424,11 +499,11 @@ def preload_artifact(avatar_id: str) -> bool:
 
 
 def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None,
-                   hd: bool = False, artifact: dict = None) -> bool:
+                   hd: bool = False, artifact: dict = None, max_dim=None) -> bool:
     """To'liq video fayl (offline). hd=True → kuchliroq tiniqlik (Video Studiya).
+    max_dim — chiqish rezolyutsiyasi (1280/1920); artefakt shunga kichraytiriladi.
     artifact berilsa — o'sha (assembled, bosh harakatli) artefakt ishlatiladi
-    (avatar_id keshidan emas). 2-faza: harakat dvigateli shu orqali ulanadi.
-    (HD yuz tiklash — GFPGAN — keyingi bosqichda shu yerga ulanadi.)"""
+    (avatar_id keshidan emas) va kerak bo'lsa o'sha ham kichraytiriladi."""
     import torch
     import cv2
     import numpy as np
@@ -453,7 +528,14 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
 
     try:
         # artifact berilsa (assembled, bosh harakatli) — aylantirmaymiz (tartib muhim).
-        art = artifact if artifact is not None else _get_artifact(avatar_id)
+        if artifact is not None:
+            art = artifact
+            if max_dim:
+                _r = _target_ratio(art, max_dim)
+                if _r < 0.999:
+                    art = _downscale_artifact(art, _r)
+        else:
+            art = _get_artifact(avatar_id, max_dim)
         _start = 0 if artifact is not None else _cycle_start(len(art["frames"]))
         _input_latent_list_cycle = _rotate(art["latents"], _start)
         _coord_list_cycle = _rotate(art["coords"], _start)
@@ -588,7 +670,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
 
 
 def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
-                          start_frame=None):
+                          start_frame=None, max_dim=None):
     """STREAMING variant: kadrlarni generatsiya paytida fragmented-mp4 bayt
     bo'laklari sifatida yieldlaydi (eski musetalk_infer'ga TEGILMAYDI — additiv).
 
@@ -608,7 +690,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
     from musetalk.utils.blending import get_image_blending
 
     ensure_loaded()
-    art = _get_artifact(avatar_id)
+    art = _get_artifact(avatar_id, max_dim)
     # Sikl boshlanishi: frontend bergan kadr (handoff) yoki tasodifiy.
     _n_cycle = len(art["frames"])
     if start_frame is None:

@@ -210,6 +210,43 @@ def _tts_yandex_v3(text: str, tmp_path: str, voice_id: str, speed: float = 1.0):
         f.write(bytes(audio))
 
 
+# ── Ovoz namunasi (preview) — editorda har ovozni eshitib tanlash uchun ──
+_PREVIEW_TEXT = {
+    "uz": "Assalomu alaykum! Men sizning virtual yordamchingizman.",
+    "ru": "Здравствуйте! Я ваш виртуальный помощник.",
+    "en": "Hello! I'm your virtual assistant.",
+    "kk": "Сәлеметсіз бе! Мен сіздің виртуалды көмекшіңізмін.",
+}
+
+
+def voice_lang(voice_id: str) -> str:
+    """Ovozning tili (uz/ru/en/kk) — spec 'lang' yoki voice id prefiksidan."""
+    spec = VOICES.get(voice_id) or {}
+    lang = spec.get("lang")
+    if lang:
+        return lang.split("-")[0]
+    v = spec.get("voice", "")
+    if "-" in v:
+        return v.split("-")[0]
+    return "uz"
+
+
+def ensure_preview(voice_id: str) -> str:
+    """Ovoz namunasi wav'ini qaytaradi (keshlangan; yo'q bo'lsa generatsiya qiladi).
+    Har ovoz o'z tilida bir qisqa gap gapiradi."""
+    if voice_id not in VOICES:
+        raise ValueError(f"Noma'lum ovoz: {voice_id}")
+    from app.core.paths import CHECKPOINTS_DIR
+    d = CHECKPOINTS_DIR / "voice_previews"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{voice_id}.wav"
+    if p.exists() and p.stat().st_size > 0:
+        return str(p)
+    txt = _PREVIEW_TEXT.get(voice_lang(voice_id), _PREVIEW_TEXT["uz"])
+    tts(txt, str(p), voice=voice_id)
+    return str(p)
+
+
 def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0):
     """speed — gapirish tezligi ko'paytuvchisi (1.0 = normal; <1 sekin, >1 tez).
     pace (slow/medium/fast) shu orqali qo'llanadi. edge: rate%, Yandex: speed param."""

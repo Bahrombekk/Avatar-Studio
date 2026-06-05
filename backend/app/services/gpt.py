@@ -9,6 +9,20 @@ from app.core.config import openai_api_key
 
 client = OpenAI(api_key=openai_api_key())
 
+
+def embed_texts(texts):
+    """Matnlar ro'yxati → embedding vektorlari (semantik o'xshashlik uchun — tayyor
+    javoblar matching). text-embedding-3-small: arzon va tez. Xato bo'lsa [] qaytaradi."""
+    texts = [t for t in (texts or []) if (t or "").strip()]
+    if not texts:
+        return []
+    try:
+        resp = client.embeddings.create(model="text-embedding-3-small", input=texts)
+        return [d.embedding for d in resp.data]
+    except Exception as e:  # noqa: BLE001
+        print(f"[embed] xato: {e}")
+        return []
+
 SYSTEM_PROMPT = """Siz O'zbekiston Temir Yo'llari virtual yordamchisisiz, ismingiz Madina.
 
 JAVOB USLUBI (juda muhim — qisqa javob real-time video uchun shart):

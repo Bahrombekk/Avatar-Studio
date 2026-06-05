@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routes import analytics, auth, avatars, chat, studio, system
+from app.api.routes import analytics, auth, avatars, canned, chat, studio, system
 from app.core.paths import FRONTEND_DIST, STATIC_DIR
 from app.realtime.ws import router as realtime_router
 from app.services.musetalk import preload_artifact, warmup
@@ -54,10 +54,11 @@ async def lifespan(app: FastAPI):
             # Real avatarlar artefaktini (200 kadr/mask) keshга oldindan yuklaymiz —
             # foydalanuvchining BIRINCHI savoli sekin bo'lmasligi uchun.
             try:
-                from app.services import avatar_store
+                from app.services import avatar_store, musetalk
                 for av in avatar_store.list_avatars():
                     if av.get("real"):
-                        preload_artifact(av["id"])
+                        # Native + ishlatiladigan (kichraytirilgan) variantni isitamiz.
+                        preload_artifact(av["id"], musetalk.use_max_dim(av))
             except Exception as e:
                 print(f"[server] artefakt preload xato: {e}")
         except Exception as e:
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics.router)
     app.include_router(system.router)
     app.include_router(studio.router)      # /api/studio (Video Studiya — offline render)
+    app.include_router(canned.router)      # /api/canned (tayyor javoblar — pre-rendered Q&A)
     app.include_router(realtime_router)    # /api/realtime/ws (alohida modul)
 
     # SPA — endi ROOT '/' da: '/' = public real-time (user), '/admin/*' = panel (login).

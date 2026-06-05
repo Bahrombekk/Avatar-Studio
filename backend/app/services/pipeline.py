@@ -11,7 +11,7 @@ import uuid
 from app.core.paths import TEMP_DIR, VID_OUT_DIR
 from app.services.cache import get_cache, is_repeat_request
 from app.services.gpt import ask_gpt, build_system_prompt, SYSTEM_PROMPT
-from app.services.musetalk import musetalk_infer
+from app.services.musetalk import musetalk_infer, use_max_dim
 from app.services.tts import tts, DEFAULT_VOICE
 
 
@@ -70,7 +70,8 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
 
     t3 = time.time()
     linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
-    ok = musetalk_infer(wav_path, linux_mp4, fps=fps, avatar_id=hist_key)
+    ok = musetalk_infer(wav_path, linux_mp4, fps=fps, avatar_id=hist_key,
+                        max_dim=use_max_dim(avatar))
     if os.path.exists(wav_path):
         os.remove(wav_path)
     t_mt = round(time.time() - t3, 2)
@@ -143,7 +144,8 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
 
     t3 = time.time()
     linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
-    ok = musetalk_infer(wav_full, linux_mp4, fps=fps, avatar_id=hist_key)
+    ok = musetalk_infer(wav_full, linux_mp4, fps=fps, avatar_id=hist_key,
+                        max_dim=use_max_dim(avatar))
     try:
         os.remove(wav_full)
     except Exception:

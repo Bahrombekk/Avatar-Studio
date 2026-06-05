@@ -138,7 +138,8 @@ def build_musetalk(avatar_id: str, _: bool = Admin):
         preprocess.preprocess_avatar_subprocess(avatar_id)
         musetalk.invalidate(avatar_id)
         try:
-            musetalk.preload_artifact(avatar_id)
+            _av = avatar_store.get_avatar(avatar_id)
+            musetalk.preload_artifact(avatar_id, musetalk.use_max_dim(_av))
         except Exception:
             pass
         # Bosh-harakat primitivlarini ham AVTOMATIK quramiz — yangi avatar darrov

@@ -34,15 +34,11 @@ def _python_bin() -> str:
     return os.environ.get("LP_PYTHON") or sys.executable
 
 
-def _avatar_max_dim(av: dict) -> int:
-    """Avatar build rezolyutsiyasi (LivePortrait manba uzun tomoni, piksel):
-    1280 = 720p (tez — real-time uchun), 1920 = 1080p (sifat — Studio uchun).
-    avatar.json'dagi 'maxDim' bilan boshqariladi (admin panel). Default 1280 (tez)."""
-    try:
-        v = int((av or {}).get("maxDim", 1280))
-    except (TypeError, ValueError):
-        v = 1280
-    return v if v in (1280, 1920) else 1280
+# Build HAR DOIM 1080p (1920) bazada quriladi — bu eng yuqori sifatli manba.
+# Ishlatishda (real-time / Studio) avatar.maxDim bo'yicha 720p (1280)'ga BIR ZUMDA
+# kichraytiriladi (musetalk._downscale_artifact). Shunda 720↔1080 almashtirish
+# QAYTA QURISHNI talab qilmaydi — bitta og'ir GPU build ikkala rezolyutsiyaga xizmat.
+BUILD_MAX_DIM = 1920
 
 
 def generate_idle(avatar_id: str) -> str:
@@ -87,7 +83,7 @@ def generate_idle(avatar_id: str) -> str:
     # segfault (kod -11) keltiradi. Subprocess uchun faqat LP_DIR qoldiramiz.
     env = os.environ.copy()
     env["PYTHONPATH"] = str(LP_DIR)
-    env["RT_SOURCE_MAX_DIM"] = str(_avatar_max_dim(av))   # per-avatar 720/1080 tanlovi
+    env["RT_SOURCE_MAX_DIM"] = str(BUILD_MAX_DIM)   # har doim 1080p baza (kichraytirish runtime'da)
     proc = subprocess.run(cmd, cwd=str(LP_DIR), capture_output=True,
                           text=True, timeout=TIMEOUT_SEC, env=env)
     if proc.returncode != 0:
@@ -122,7 +118,7 @@ def generate_motion_clips(avatar_id: str) -> str:
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(LP_DIR)
-    env["RT_SOURCE_MAX_DIM"] = str(_avatar_max_dim(av))   # per-avatar 720/1080 tanlovi
+    env["RT_SOURCE_MAX_DIM"] = str(BUILD_MAX_DIM)   # har doim 1080p baza (kichraytirish runtime'da)
     proc = subprocess.run(cmd, cwd=str(LP_DIR), capture_output=True,
                           text=True, timeout=TIMEOUT_SEC, env=env)
     if proc.returncode != 0:

@@ -55,7 +55,15 @@ def _index_add(meta: dict) -> None:
 
 
 def list_renders() -> list:
-    return _load_index()
+    """Tayyor (index) + FAOL (processing/error, _JOBS) renderlar. Faol renderlar
+    indexda yo'q — ularni oldinga qo'shamiz, shunda frontend jarayonni ko'radi."""
+    idx = _load_index()
+    ids = {it.get("id") for it in idx}
+    active = [j["meta"] for j in _JOBS.values()
+              if j.get("state") in ("processing", "error")
+              and j.get("meta", {}).get("id") not in ids]
+    active.sort(key=lambda m: m.get("created", ""), reverse=True)
+    return active + idx
 
 
 def render_status(render_id: str) -> dict:
@@ -370,7 +378,8 @@ def _run(rid, avatar, voice, mode, text, prompt, hd, fps, meta):
                 print(f"[render {rid}] motion assemble xato → oddiy idle: {e}")
                 art = None
         ok = musetalk.musetalk_infer(src_wav, str(out), fps=fps, avatar_id=avatar_id,
-                                     hd=hd, artifact=art)
+                                     hd=hd, artifact=art,
+                                     max_dim=musetalk.use_max_dim(avatar))
         if not ok or not out.exists():
             raise RuntimeError("Video generatsiya qilinmadi")
         meta["state"] = "done"

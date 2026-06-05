@@ -266,6 +266,21 @@ function TabPortrait({ draft, set, setP, savedId, uploading, photoErr, photoVer,
 
 /* ── Tab: Voice & Language ── */
 function TabVoice({ draft, set }) {
+  // Ovoz namunasi (preview) — ▶ bosilganda o'sha ovozni o'z tilida eshittiradi.
+  const [playing, setPlaying] = useState("");
+  const audioRef = useRef(null);
+  useEffect(() => () => { if (audioRef.current) audioRef.current.pause(); }, []);
+  function preview(e, id) {
+    e.stopPropagation();   // karta tanlanmasin, faqat eshitilsin
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (playing === id) { setPlaying(""); return; }
+    const a = new Audio(API.voicePreviewUrl(id));
+    audioRef.current = a;
+    a.onended = () => setPlaying("");
+    a.onerror = () => setPlaying("");
+    a.play().catch(() => setPlaying(""));
+    setPlaying(id);
+  }
   // Til o'zgarganda joriy ovoz o'sha tilga mos bo'lmasa, birinchi mos ovozni tanlaymiz.
   const pickLang = (code) => {
     const cur = VOICES.find((v) => v.id === draft.voice);
@@ -294,7 +309,9 @@ function TabVoice({ draft, set }) {
                 <div className="ed-voice-name">{v.name}</div>
                 <div className="ed-voice-sub">{v.gender} · {v.tag}</div>
               </div>
-              <div className="ed-voice-play"><I.play size={12} /></div>
+              <div className={"ed-voice-play" + (playing === v.id ? " on" : "")} onClick={(e) => preview(e, v.id)} title="Eshitish">
+                {playing === v.id ? <I.pause size={12} /> : <I.play size={12} />}
+              </div>
             </button>
           ))}
         </div>
@@ -366,7 +383,7 @@ function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle,
         </Field>
       </Row2>
 
-      <Field label="Sifat / Tezlik" hint="720p = tezroq (real-time suhbat uchun); 1080p = tiniqroq (Video Studiya uchun, lekin sekinroq). O‘zgartirsangiz Idle + Model qayta qurilsin.">
+      <Field label="Sifat / Tezlik" hint="720p = tezroq (real-time suhbat uchun); 1080p = tiniqroq (Video Studiya uchun, lekin sekinroq). Bu sozlama BIR ZUMDA qo‘llanadi — saqlasangiz bo‘ldi, qayta qurish SHART EMAS (avatar 1080p bazada quriladi, ishlatishda kerakli o‘lchamga moslanadi).">
         <Segmented value={String(draft.maxDim || 1280)} onChange={(v) => set({ maxDim: parseInt(v) })}
           options={[{value:"1280",label:"Tez · 720p"},{value:"1920",label:"Sifat · 1080p"}]} />
       </Field>
