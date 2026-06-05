@@ -36,7 +36,8 @@ _COORD_PLACEHOLDER = (0.0, 0.0, 0.0, 0.0)
 
 # 2-faza harakat primitivlari (neutral = filler).
 MOTION_TYPES = ["neutral", "nod", "tilt_left", "tilt_right",
-                "turn_left", "turn_right", "lean_forward"]
+                "turn_left", "turn_right", "lean_forward",
+                "lean_back", "look_up", "look_down", "shake"]
 
 
 def _video2imgs(vid_path: str, save_dir: str) -> int:

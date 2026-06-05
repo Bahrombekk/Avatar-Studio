@@ -130,7 +130,11 @@ def normalize_for_tts(text: str, language: str = "uz") -> str:
         f"- Qisqartma va belgilarni TO'LIQ SO'Z bilan yoz ({name} tilida): km→kilometr, "
         f"m→metr, kg→kilogramm, %→foiz, $→dollar, °C→gradus, № yoki #→raqam, & ва h.k.\n"
         f"- Barcha SONLAR, yillar, sanalar, telefon/raqamlarni SO'Z bilan yoz "
-        f"(masalan 2024→ikki ming yigirma to'rt; 15 km→o'n besh kilometr).\n"
+        f"(15 km→o'n besh kilometr; 3645→uch ming olti yuz qirq besh).\n"
+        f"- YILLARNI o'zbekcha tabiiy yoz: 1000 oldidan 'bir' QO'YMA, yil tartib son "
+        f"+ 'yil' bilan tugaydi. Masalan 1994→ming to'qqiz yuz to'qson to'rtinchi yil "
+        f"('bir ming' EMAS!); 2024→ikki ming yigirma to'rtinchi yil; "
+        f"2026→ikki ming yigirma oltinchi yil.\n"
         f"- Ma'noni O'ZGARTIRMA, jumlalarni qisqartirma — faqat aytilishini tabiiy qil.\n"
         f"- Til: {name}. Boshqa tilga tarjima QILMA."
     )
@@ -150,17 +154,27 @@ Vazifang: berilgan xom matnni avatar TABIIY va JONLI gapiradigan holatga keltiri
 SENGA TEZLIK EMAS, SIFAT VA ANIQLIK MUHIM.
 
 1-BOSQICH — MATNNI TO'G'RILASH:
-- Barcha RAQAM va SANALARNI to'liq og'zaki (so'z) shaklga o'tkaz (1994-yil → bir ming
-  to'qqiz yuz to'qson to'rtinchi yil). Qisqartmalarni harflab o'qi (O'TY → O-Te-Ye).
+- Barcha RAQAM va SANALARNI to'liq og'zaki (so'z) shaklga o'tkaz.
+- YILLAR — o'zbekcha tabiiy shakl: 1000 oldidan "bir" QO'YMA. Yil tartib son (…inchi) +
+  "yil" bilan tugaydi. MISOLLAR:
+   • 1994-yil → "ming to'qqiz yuz to'qson to'rtinchi yil"   (DIQQAT: "bir ming" EMAS!)
+   • 2024-yil → "ikki ming yigirma to'rtinchi yil"
+   • 2026-yil → "ikki ming yigirma oltinchi yil"
+- Oddiy sonlar (yil emas): 15 → "o'n besh", 3645 → "uch ming olti yuz qirq besh".
+- Qisqartmalarni harflab o'qi (O'TY → O-Te-Ye).
 - Ro'yxat/bandlarni tabiiy gapga aylantir. Imlo/talaffuz xatolarini tuzat. Ortiqcha
   belgilarni (—, :, •) olib tashla.
 2-BOSQICH — HIS-TUYG'U: matnni jonli qil (faxr, ishonch, samimiylik). Ma'noni o'zgartirma.
-3-BOSQICH — BOSH HARAKATI: har segment uchun turi (nod/tilt_left/tilt_right/turn_left/
-  turn_right/lean_forward/none), trigger_word, speed (slow/medium/fast), intensity (0..1).
-  MUHIM: harakatni FAOL ishlat — KO'PCHILIK segmentda harakat bo'lsin, "none" ni KAM
-  ishlat (faqat juda qisqa bog'lovchi gapda). Qoidalar:
+3-BOSQICH — BOSH HARAKATI: har segment uchun turi, trigger_word, speed (slow/medium/
+  fast), intensity (0..1). Mavjud TURLAR: nod, lean_forward, lean_back, look_up,
+  look_down, tilt_left, tilt_right, turn_left, turn_right, shake, none.
+  MUHIM: harakatni FAOL va XILMA-XIL ishlat — KO'PCHILIK segmentda harakat bo'lsin,
+  bir xil turni ketma-ket takrorlama, "none" ni KAM ishlat. Qoidalar:
    • sanash/ro'yxat (birinchidan, ikkinchidan, yana...) → "nod"
    • faxr / urg'u / muhim e'lon → "lean_forward" yoki "nod" (intensity 0.6-0.9)
+   • rad etish / inkor / "yo'q" / kuchli farq → "shake"
+   • o'ylash / eslash / "ma'lumki" / "tasavvur qiling" → "look_up" yoki "lean_back"
+   • yakun / kamtarlik / yumshoq xulosa → "look_down"
    • savol yoki taqqoslash → "tilt_right" yoki "tilt_left"
    • yangi mavzuga o'tish / salomlashish → "turn_left" yoki "turn_right" (yengil)
   Har 1-2 jumlada kamida bitta harakat bo'lsin (jonli ko'rinishi uchun).

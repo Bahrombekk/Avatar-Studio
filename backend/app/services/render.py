@@ -212,9 +212,10 @@ _MOTION_SPEED_DUR = {"slow": 1.5, "medium": 1.1, "fast": 0.8}
 _PACE_SPEED = {"slow": 0.9, "medium": 1.0, "fast": 1.12}
 
 
-def _build_motion_units(avatar_id, segments, seg_frames, lead_frames, fps):
+def _build_motion_units(avatar_id, segments, seg_frames, lead_frames, trail_frames, fps):
     """GPT reja + segment kadrlaridan bosh-harakat unit ketma-ketligini quradi:
-    lead-in neytral + har segment uchun (motion primitiv + neytral to'ldirish).
+    lead-in neytral + har segment uchun (motion primitiv + neytral to'ldirish) +
+    lead-out neytral (oxirgi sukunat ham bosh harakati bilan qoplanadi).
     Faqat mavjud primitivlar ishlatiladi. GPT hech qanday harakat bermasa —
     yengil default harakat sepiladi (jonli ko'rinishi kafolatlanadi)."""
     def avail(mt):
@@ -227,7 +228,8 @@ def _build_motion_units(avatar_id, segments, seg_frames, lead_frames, fps):
 
     # Fallback: GPT hech qanday harakat bermasa → har ikkinchi segmentga aylanma harakat.
     if not any(eff):
-        cyc = [m for m in ["nod", "tilt_right", "lean_forward", "tilt_left", "turn_right", "nod"]
+        cyc = [m for m in ["nod", "tilt_right", "lean_forward", "look_up", "tilt_left",
+                            "lean_back", "turn_right", "look_down", "nod"]
                if musetalk.has_motion(avatar_id, m)]
         if cyc:
             j = 0
@@ -250,6 +252,8 @@ def _build_motion_units(avatar_id, segments, seg_frames, lead_frames, fps):
                 units.append(("neutral", sf - mlen))
         else:
             units.append(("neutral", sf))
+    if trail_frames > 0:
+        units.append(("neutral", trail_frames))
     return units
 
 
@@ -334,12 +338,15 @@ def _run(rid, avatar, voice, mode, text, prompt, hd, fps, meta):
             if not done:
                 tts(full_text, wav, voice=voice)
 
-        # 4. Lead-in: boshiga ~0.35s sukunat → og'iz yopiq holatdan tabiiy boshlanadi.
-        lead_sec = 0.35
+        # 4. Lead-in + lead-out: boshiga ~0.7s, oxiriga ~0.7s sukunat → avatar
+        #    gapirishdan OLDIN va KEYIN jim (og'iz yopiq, bosh tabiiy) turadi,
+        #    keyin gapiradi / jimga tinch tushadi (keskin boshlanmaydi/uzulmaydi).
+        lead_sec, trail_sec = 0.85, 1.0
         src_wav = wav
         try:
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", wav, "-af",
-                            f"adelay={int(lead_sec * 1000)}", "-ar", "16000", "-ac", "1", wav_pad],
+                            f"adelay={int(lead_sec * 1000)},apad=pad_dur={trail_sec:.3f}",
+                            "-ar", "16000", "-ac", "1", wav_pad],
                            capture_output=True, timeout=60)
             if os.path.exists(wav_pad) and os.path.getsize(wav_pad) > 0:
                 src_wav = wav_pad
@@ -353,7 +360,9 @@ def _run(rid, avatar, voice, mode, text, prompt, hd, fps, meta):
         if motion_mode:
             try:
                 lead_frames = round(lead_sec * fps)
-                units = _build_motion_units(avatar_id, segments, seg_frames, lead_frames, fps)
+                trail_frames = round(trail_sec * fps)
+                units = _build_motion_units(avatar_id, segments, seg_frames, lead_frames,
+                                            trail_frames, fps)
                 art = musetalk.assemble_motion_timeline(avatar_id, units)
                 meta["motion_units"] = [[u[0], int(u[1])] for u in units]
                 _JOBS[rid]["meta"] = meta

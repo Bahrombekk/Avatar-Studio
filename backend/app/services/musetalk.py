@@ -147,15 +147,18 @@ def _encoder_name() -> str:
     return _ENCODER
 
 
-def _venc_args(fps: int) -> list:
-    """Tanlangan kodlovchi uchun ffmpeg video argumentlari (sifat ~crf18 darajasida).
-    NVENC: -cq 20 + p5/hq → x264 crf18 ga yaqin sifat, lekin GPU'da ~5x tez."""
+def _venc_args(fps: int, hd: bool = False) -> list:
+    """ffmpeg video kodlash argumentlari. hd=True (offline Studio) → yuqoriroq sifat
+    (crf 16 + sekinroq preset; NVENC cq 17/p7). hd=False (real-time) → tez (crf 18).
+    NVENC ~5x tez, lekin x264 (slow) biroz tiniqroq — offline'da x264 afzal."""
     enc = _encoder_name()
     if enc == "h264_nvenc":
-        return ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
-                "-rc", "vbr", "-cq", "20", "-b:v", "0",
+        cq, pre = ("17", "p7") if hd else ("20", "p5")
+        return ["-c:v", "h264_nvenc", "-preset", pre, "-tune", "hq",
+                "-rc", "vbr", "-cq", cq, "-b:v", "0",
                 "-pix_fmt", "yuv420p", "-g", str(fps)]
-    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+    crf, pre = ("16", "slow") if hd else ("18", "veryfast")
+    return ["-c:v", "libx264", "-preset", pre, "-crf", crf,
             "-pix_fmt", "yuv420p", "-g", str(fps)]
 
 
@@ -338,14 +341,29 @@ def _resample_artifact(art, k):
             for kk in ("latents", "coords", "mask_coords", "frames", "masks")}
 
 
+def _natural_fill(art, k):
+    """Neytral idle'ni 1x (tabiiy) tempda k kadrga to'ldiradi — klipni LOOP qiladi,
+    SIQMAYDI. Neytral klip chetlarda neytral (enveloped) bo'lgani uchun loop silliq.
+    Resample (siqish) neytralni tezlashtirib, video boshida 'birdaniga tez harakat'
+    effektini berardi — buni oldini oladi."""
+    n = len(art["frames"])
+    keys = ("latents", "coords", "mask_coords", "frames", "masks")
+    if k <= 0 or n == 0:
+        return {kk: [] for kk in keys}
+    idxs = [i % n for i in range(k)]
+    return {kk: [art[kk][j] for j in idxs] for kk in keys}
+
+
 def assemble_motion_timeline(avatar_id, units) -> dict:
-    """units = [(mtype, n_frames), ...] → har primitivni n_frames ga RESAMPLE qilib
-    ulaydi → kadr-aniq (audio bilan mos) bosh-harakat timeline'i. Chegaralar neytral."""
+    """units = [(mtype, n_frames), ...] → bosh-harakat timeline'i (audio bilan kadr-aniq).
+    NEYTRAL → tabiiy tempda loop (siqilmaydi); MOTION primitivlar → resample (gesture
+    davomiyligini segmentga moslash uchun tezlik nazorati). Chegaralar neytral."""
     L, C, MC, F, M = [], [], [], [], []
     for mt, k in units:
         if k <= 0:
             continue
-        r = _resample_artifact(_get_motion_artifact(avatar_id, mt), int(k))
+        a = _get_motion_artifact(avatar_id, mt)
+        r = _natural_fill(a, int(k)) if mt == "neutral" else _resample_artifact(a, int(k))
         L += r["latents"]; C += r["coords"]; MC += r["mask_coords"]
         F += r["frames"]; M += r["masks"]
     return {"latents": L, "coords": C, "mask_coords": MC, "frames": F, "masks": M}
@@ -419,7 +437,9 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
     from musetalk.utils.blending import get_image_blending
 
     ensure_loaded()
-    _hd_sharpen = _SHARPEN * 1.6 if hd else _SHARPEN
+    # HD'da GFPGAN tiniqlikni o'zi beradi → qo'shimcha sharpen O'CHIRILADI (sharpen
+    # 256→kattalashgan og'izdagi shovqinni kuchaytirib, lab "qaltirashi"ni keltirardi).
+    _hd_sharpen = 0.0 if hd else _SHARPEN
     _prof = os.environ.get("RT_PROFILE") == "1"
     _pt = time.time()
 
@@ -470,6 +490,20 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
                     res_frame_list.append(res_frame)
         _lap("GPU (UNet+VAE)")
 
+        # 2.5 TEMPORAL SILLIQLASH (lab titrashini kamaytirish). MuseTalk har og'iz
+        #     kadrini MUSTAQIL yaratadi → kadrlararo mayda jitter ("qaltirash").
+        #     Yengil EMA: kadr = (1-a)*joriy + a*oldingi → yuqori-chastotali titrash
+        #     damp bo'ladi, lab harakati saqlanadi. a (RT_LIP_SMOOTH) 0..0.6;
+        #     katta = tinchroq lekin sal laggy. 0 = o'chiq.
+        _ls = max(0.0, min(0.6, float(os.environ.get("RT_LIP_SMOOTH", "0.35"))))
+        if _ls > 0 and len(res_frame_list) > 1:
+            prev = res_frame_list[0].astype(np.float32)
+            for _i in range(1, len(res_frame_list)):
+                cur = res_frame_list[_i].astype(np.float32)
+                prev = _ls * prev + (1.0 - _ls) * cur
+                res_frame_list[_i] = prev.copy()
+            _lap("temporal smooth")
+
         # 3. To'liq kadrga composite (parallel)
         n_total = min(len(res_frame_list), video_num)
 
@@ -510,13 +544,27 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
                 cv2.addWeighted(last_frame, 1.0 - alpha, idle_frame, alpha, 0)
             )
 
+        # 3.5 HD: GFPGAN yuz tiklash (GPU) — 256 yumshoqligini qoplab, 512 tiniqlik.
+        #     Faqat hd=True (offline Studio); xato/vazn yo'q bo'lsa jimgina o'tkaziladi.
+        if hd:
+            try:
+                from app.services import enhance
+                if enhance.available():
+                    with _gpu_slot("enhance"):
+                        # blend 0.6: tiklangan+asl aralashmasi — har-kadr flicker (lab
+                        # qaltirashi)ni kamaytiradi, tiniqlikni saqlab.
+                        out_frames = [enhance.restore_frame(f, blend=0.6) for f in out_frames]
+                    _lap("GFPGAN restore")
+            except Exception as e:  # noqa: BLE001
+                print(f"[LP-MuseTalk GFPGAN o'tkazildi] {e}")
+
         # 4. ffmpeg STDIN orqali mp4
         h, w = out_frames[0].shape[:2]
         proc = subprocess.Popen([
             "ffmpeg", "-y", "-v", "warning",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps),
             "-i", "-", *_audio_offset_args(), "-i", wav_path,
-            *_venc_args(fps),
+            *_venc_args(fps, hd=hd),
             "-af", "apad", "-c:a", "aac", "-shortest", out_mp4,
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:

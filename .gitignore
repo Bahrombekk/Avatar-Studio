@@ -67,3 +67,6 @@ Thumbs.db
 # Video Studiya render natijalari + zaxiralar (lokal, katta)
 backend/data/renders/
 *.mp4.bak
+
+# Runtime statistika (har suhbat/renderdan keyin o'zgaradi — kuzatishga hojat yo'q)
+backend/data/avatars/*/stats.json

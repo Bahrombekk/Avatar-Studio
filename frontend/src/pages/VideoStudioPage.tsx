@@ -9,6 +9,28 @@ import { useAvatars } from "@/context/AvatarsContext";
 import { useToast } from "@/context/ToastContext";
 import type { Voice } from "@/types/chat";
 
+// Kutish bosqichlari (jonli ko'rsatish uchun). STAGE_T — har bosqich shu sekundgacha
+// "tugagan" hisoblanadi (taxminiy; backend opaque). GEN_EST — taxminiy umumiy vaqt.
+const GEN_STAGES = [
+  { key: "text", label: "Matn tahlil qilinmoqda" },
+  { key: "voice", label: "Ovoz tayyorlanmoqda" },
+  { key: "face", label: "Avatar yuzi sozlanmoqda" },
+  { key: "lip", label: "Lab harakati sinxronlanmoqda" },
+  { key: "build", label: "Video yig'ilmoqda" },
+];
+const STAGE_T = [4, 11, 15, 24, 9999];
+const GEN_EST = 26;
+
+const FACTS = [
+  "Bilasizmi? Afrosiyob soatiga ikki yuz ellik kilometr tezlikda yuradi.",
+  "Maslahat: HD sifat tabiiyroq lab harakatini beradi.",
+  "Bilasizmi? Avatar sanab o'tganda bosh tabiiy nod qiladi.",
+  "Maslahat: qisqa va aniq jumlalar ravonroq talaffuz beradi.",
+  "Bilasizmi? Sonlar va sanalar avtomatik so'z bilan o'qiladi.",
+  "Maslahat: GPT rejimida faqat mavzu bersangiz, skriptni o'zi yozadi.",
+  "Bilasizmi? Urg'uli gaplarda avatar biroz oldinga egiladi.",
+];
+
 export function VideoStudioPage() {
   const { avatars } = useAvatars();
   const { toast } = useToast();
@@ -26,9 +48,11 @@ export function VideoStudioPage() {
   const [renders, setRenders] = useState<Render[]>([]);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [factIdx, setFactIdx] = useState(0);
+  const [justDone, setJustDone] = useState(false);   // "Tayyor!" qisqa bayrami
   const pollRef = useRef<number>(0);
 
-  // Generatsiya davomida sekund hisoblagich (qiziqarli progress uchun).
+  // Generatsiya davomida sekund hisoblagich.
   useEffect(() => {
     if (!busy) {
       setElapsed(0);
@@ -38,11 +62,18 @@ export function VideoStudioPage() {
     return () => window.clearInterval(t);
   }, [busy]);
 
-  const stageMsg =
-    elapsed < 3 ? "Matn tayyorlanmoqda…"
-    : elapsed < 9 ? "Ovoz sintez qilinmoqda…"
-    : elapsed < 22 ? "Video kadrlari yaratilmoqda…"
-    : "Yakunlanmoqda…";
+  // Qiziqarli fakt/maslahat — har ~4.5s yangisi (yumshoq fade).
+  useEffect(() => {
+    if (!busy) return;
+    const t = window.setInterval(() => setFactIdx((i) => (i + 1) % FACTS.length), 4500);
+    return () => window.clearInterval(t);
+  }, [busy]);
+
+  // Kutish holati: bosqich, foiz, qolgan vaqt.
+  const curStage = busy ? STAGE_T.filter((t) => elapsed >= t).length : GEN_STAGES.length;
+  const stageLabel = busy ? GEN_STAGES[curStage]?.label || "Yakunlanmoqda…" : "Tayyor!";
+  const pct = busy ? Math.min(94, Math.round((elapsed / GEN_EST) * 100)) : 100;
+  const remain = elapsed < GEN_EST ? `~${Math.max(1, GEN_EST - elapsed)}s qoldi` : "Deyarli tayyor…";
 
   const avatar = useMemo(
     () => ready.find((a) => a.id === avatarId) || ready[0],
@@ -106,6 +137,8 @@ export function VideoStudioPage() {
         if (s.state === "done") {
           window.clearInterval(pollRef.current);
           setBusy(false);
+          setJustDone(true);   // qisqa "Tayyor!" holati
+          window.setTimeout(() => setJustDone(false), 1600);
           toast("Video tayyor!", "success");
           await loadRenders();
         } else if (s.state === "error") {
@@ -193,13 +226,46 @@ export function VideoStudioPage() {
               <Btn kind="primary" icon="play" onClick={generate} disabled={busy}>
                 {busy ? "Generatsiya…" : "Video yaratish"}
               </Btn>
-              {busy && (
-                <div className="vs-prog">
-                  <div className="vs-bar"><div className="vs-bar-fill" /></div>
-                  <div className="vs-prog-msg">
-                    <span className="vs-prog-stage"><span className="vs-spin" />{stageMsg}</span>
-                    <span className="vs-prog-time">{elapsed}s</span>
+
+              {(busy || justDone) && (
+                <div className="vs-overlay">
+                <div className={"vs-gen" + (justDone ? " done" : "")}>
+                  {/* avatar preview (nafas olib turadi) + ovoz to'lqini */}
+                  <div className="vs-gen-top">
+                    {avatar && <img className="vs-gen-av" src={API.photoUrl(avatar.id)} alt="" />}
+                    <div className="vs-gen-wave" aria-hidden="true">
+                      {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                        <span key={i} style={{ animationDelay: `${i * 0.1}s` }} />
+                      ))}
+                    </div>
                   </div>
+                  {/* silliq gradient + shimmer progress */}
+                  <div className="vs-pbar">
+                    <div className="vs-pbar-fill" style={{ width: pct + "%" }} />
+                  </div>
+                  <div className="vs-gen-meta">
+                    <span className="vs-gen-stage">
+                      {justDone ? <I.check size={14} /> : <span className="vs-spin" />}
+                      {stageLabel}
+                    </span>
+                    <span className="vs-prog-time">{busy ? remain : "100%"}</span>
+                  </div>
+                  {/* bosqichlar — tugaganda ✓ */}
+                  <ul className="vs-steps">
+                    {GEN_STAGES.map((s, i) => {
+                      const st = justDone || i < curStage ? "done"
+                        : i === curStage ? "active" : "pending";
+                      return (
+                        <li key={s.key} className={"vs-step " + st}>
+                          <span className="vs-step-ic">{st === "done" ? "✓" : st === "active" ? "•" : ""}</span>
+                          {s.label}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {/* qiziqarli fakt/maslahat — yumshoq almashadi */}
+                  {busy && <div className="vs-fact" key={factIdx}>{FACTS[factIdx]}</div>}
+                </div>
                 </div>
               )}
             </Card>

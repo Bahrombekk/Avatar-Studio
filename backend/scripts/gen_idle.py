@@ -50,8 +50,9 @@ from src.utils.crop import paste_back
 from src.utils.retargeting_utils import calc_eye_close_ratio
 from src.utils.camera import get_rotation_matrix
 
-BLINK_HALF = 3      # blink yarim davomiyligi (kadr): jami ~6-7 kadr ≈ 0.27s
+BLINK_HALF = 3      # blink yarim davomiyligi (kadr): jami ~6-7 kadr
 CLOSED = 0.02       # blink eng yopiq nuqtasi (ko'z ochiqlik nisbati)
+BLINK_SPAN = 3.6    # blink tezligi (kichikroq = tezroq ochilib-yopilish; oldin 4 edi → ~10% tez)
 
 
 def head_offsets(i, n, amp_pitch, amp_yaw, amp_roll):
@@ -80,13 +81,21 @@ def head_offsets(i, n, amp_pitch, amp_yaw, amp_roll):
 # Render'da segment trigger'iga ulanadi (hammasi neytralda boshlanib-tugaydi → silliq).
 # intensity (0..1) amplitudani masshtablaydi. Maks gradus xavfsiz chegarada.
 _PRIMITIVE_MAX = {
-    "nod":          (8.0, 0.0, 0.0),    # pitch — bosh irg'ash (past-tepa)
-    "lean_forward": (5.5, 0.0, 0.0),    # oldinga egilish (pitch)
-    "tilt_left":    (0.0, 0.0, -9.0),   # roll — chapga qiyshayish
-    "tilt_right":   (0.0, 0.0, 9.0),
-    "turn_left":    (0.0, -12.0, 0.0),  # yaw — chapga burilish
-    "turn_right":   (0.0, 12.0, 0.0),
+    "nod":          (11.0, 0.0, 0.0),   # pitch — bosh irg'ash (past-tepa)
+    "lean_forward": (5.5, 0.0, 0.0),    # oldinga egilish (pitch) — urg'u uchun yumshoqroq
+    "tilt_left":    (0.0, 0.0, -11.0),  # roll — chapga qiyshayish
+    "tilt_right":   (0.0, 0.0, 11.0),
+    "turn_left":    (0.0, -15.0, 0.0),  # yaw — chapga burilish
+    "turn_right":   (0.0, 15.0, 0.0),
+    # ── Yangi turlar ──
+    "lean_back":    (-6.0, 0.0, 0.0),    # orqaga/tepaga egilish (pitch MANFIY — o'ylash)
+    "look_up":      (-9.0, 0.0, 0.0),    # tepaga qarash (eslash/o'ylab turish)
+    "look_down":    (7.0, 0.0, 0.0),     # pastga qarash (yumshoq — yakun/kamtarlik)
+    "shake":        (0.0, 11.0, 0.0),    # "yo'q" — yaw tebranish (oscillation, pastda)
 }
+# Tebranuvchi (oscillation) primitivlar — peak emas, env ichida sin to'lqin.
+# qiymat = yarim-sikllar soni (1.5 → o'ng-chap-o'ng, chetlarda 0 ga qaytadi).
+_OSC = {"shake": 1.5}
 
 
 def primitive_offsets(i, n, mtype, intensity):
@@ -97,6 +106,11 @@ def primitive_offsets(i, n, mtype, intensity):
         return 0.0, 0.0, 0.0
     p = i / max(1, n - 1)
     env = math.sin(math.pi * p) * max(0.0, min(1.0, intensity))
+    osc = _OSC.get(mtype)
+    if osc:
+        # tebranuvchi harakat (shake "yo'q"): env chetlarda 0 → silliq boshlanib-tugaydi
+        w = math.sin(2.0 * math.pi * osc * p)
+        return pk[0] * env * w, pk[1] * env * w, pk[2] * env * w
     return pk[0] * env, pk[1] * env, pk[2] * env
 
 
@@ -130,7 +144,7 @@ def eye_ratio_at(frame_idx, source_ratio, centers):
     for c in centers:
         d = abs(frame_idx - c)
         if d <= BLINK_HALF:
-            k = 1.0 - (d / (BLINK_HALF + 1))
+            k = max(0.0, 1.0 - d / BLINK_SPAN)   # ~10% tezroq blink
             r = min(r, source_ratio * (1 - k) + CLOSED * k)
     return float(r)
 
@@ -242,13 +256,16 @@ def main():
             sys.exit(2)
         os.makedirs(a.out_dir, exist_ok=True)
         gp = build_pipeline()   # bir marta yuklaymiz
-        # neutral filler — uzunroq (2.4s), boshqa primitivlar — 1.2s
+        # neutral filler — uzunroq (2.4s), boshqa primitivlar — 1.2s.
+        # Filler amplitudasi sezilarli bo'lsin (harakatsiz segmentlarda ham bosh
+        # tabiiy suriladi) → defaultdan kattaroq: yaw 4.2 / pitch 2.4 / roll 1.7.
         generate(a.source, os.path.join(a.out_dir, "neutral.mp4"), a.fps, a.blink_every, 2.4,
-                 head_yaw=a.head_yaw, head_pitch=a.head_pitch, head_roll=a.head_roll,
+                 head_yaw=4.2, head_pitch=2.4, head_roll=1.7,
                  motion_type="neutral", gp=gp)
-        for mt in ["nod", "tilt_left", "tilt_right", "turn_left", "turn_right", "lean_forward"]:
+        for mt in ["nod", "tilt_left", "tilt_right", "turn_left", "turn_right", "lean_forward",
+                   "lean_back", "look_up", "look_down", "shake"]:
             generate(a.source, os.path.join(a.out_dir, f"{mt}.mp4"), a.fps, a.blink_every, 1.2,
-                     motion_type=mt, intensity=0.7, gp=gp)
+                     motion_type=mt, intensity=0.9, gp=gp)   # 0.7 → 0.9: sezilarliroq harakat
         print("ALL-MOTION-OK")
         return
 
