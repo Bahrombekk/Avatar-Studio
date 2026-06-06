@@ -260,18 +260,19 @@ def answer_stream(question: str, max_tokens: int = 300):
     # Har chaqiruv uchun YANGI (bo'sh) suhbat tarixi — loyihalararo "oqib ketish"
     # bo'lmasligi uchun (har javob faqat o'sha loyiha matnidan). Tugagach tozalaymiz.
     import uuid as _uuid
-    from app.services.gpt import ask_gpt_stream, clear_history
+    from app.services import gpt as _gpt
     hk = "pf_" + _uuid.uuid4().hex[:12]
     try:
-        for piece in ask_gpt_stream(question, system_prompt=sys_prompt,
-                                    temperature=0.3, max_tokens=cap, history_key=hk):
+        for piece in _gpt.ask_gpt_stream(question, system_prompt=sys_prompt,
+                                         temperature=0.3, max_tokens=cap, history_key=hk):
             # ask_gpt_stream <think>'ni tozalagan; markdown belgilarini ham olib tashlaymiz.
             p = piece.replace("*", "").replace("`", "")
             if p:
                 yield p
     finally:
+        # Vaqtinchalik (loyihaga xos) tarix yozuvini o'chiramiz — xotira oqmasin.
         try:
-            clear_history(hk)
+            _gpt._histories.pop(hk, None)
         except Exception:  # noqa: BLE001
             pass
 
