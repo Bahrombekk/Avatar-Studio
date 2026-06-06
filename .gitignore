@@ -46,9 +46,13 @@ backend/checkpoints/
 
 # ── Per-avatar generatsiya artefaktlari (latents/mask/full_imgs/idle — katta, qayta yasaladi) ──
 backend/data/avatars/*/artifact/
+backend/data/avatars/*/motion/
 backend/data/avatars/*/idle.mp4
 backend/data/avatars/*/source/
 backend/data/avatars/*/vid_output/
+
+# ── Tayyor javoblar (pre-rendered Q&A — video + indeks, qayta yasaladi) ──
+backend/data/canned/
 
 # ── Og'ir binar formatlar (xavfsizlik to'ri) ──
 *.pt
@@ -64,6 +68,10 @@ Thumbs.db
 .vscode/
 *.swp
 
-# ── Maxfiy zaxira/kalitlar (snapshot branch) ──
+# ── Maxfiy zaxira/kalitlar ──
 backend/.env.bak.*
 backend/certs/
+
+# Video Studiya render natijalari + zaxiralar (lokal, katta)
+backend/data/renders/
+*.mp4.bak

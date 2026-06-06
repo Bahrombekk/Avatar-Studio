@@ -33,7 +33,9 @@
     "state": "done",
     "stage": "musetalk_prep",
     "error": null,
-    "updated": "2026-06-02T08:07:25.610341+00:00"
+    "updated": "2026-06-05T08:42:55.263881+00:00"
   },
-  "hasArtifact": true
+  "hasArtifact": true,
+  "hasMotion": true,
+  "maxDim": 1280
 }

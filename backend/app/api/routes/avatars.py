@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from app.api.deps import require_admin
 from app.core.paths import avatar_idle_file, avatar_portrait_file
 from app.schemas.avatar import AvatarCreate, AvatarUpdate
-from app.services import avatar_store, face, idle, jobs, preprocess
+from app.services import avatar_store, face, idle, jobs, musetalk, preprocess
 
 router = APIRouter(prefix="/api/avatars", tags=["avatars"])
 
@@ -130,11 +130,62 @@ def build_musetalk(avatar_id: str, _: bool = Admin):
     if jobs.is_running(avatar_id):
         raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
 
-    started = jobs.start(avatar_id, "musetalk_prep",
-                         lambda: preprocess.preprocess_avatar_subprocess(avatar_id))
+    def _rebuild():
+        # Artefakt ALOHIDA jarayonda (subprocess) quriladi — u o'z keshini tozalaydi,
+        # lekin BU ishlab turgan serverning xotira keshini emas. Shuning uchun
+        # subprocess tugagach SERVER keshini bo'shatamiz va yangisini qayta yuklaymiz,
+        # aks holda server eski (harakatsiz) artefaktni berishda davom etadi.
+        preprocess.preprocess_avatar_subprocess(avatar_id)
+        musetalk.invalidate(avatar_id)
+        try:
+            _av = avatar_store.get_avatar(avatar_id)
+            musetalk.preload_artifact(avatar_id, musetalk.use_max_dim(_av))
+        except Exception:
+            pass
+        # Bosh-harakat primitivlarini ham AVTOMATIK quramiz — yangi avatar darrov
+        # Video Studiyada bosh harakati bilan tayyor bo'lsin (qo'lda alohida qadam
+        # shart emas). Xato bo'lsa avatar baribir ishlaydi (faqat motionsiz).
+        if avatar_portrait_file(avatar_id).is_file():
+            try:
+                idle.generate_motion_clips(avatar_id)
+                preprocess.preprocess_motion_all_subprocess(avatar_id)
+                musetalk.invalidate(avatar_id)
+                avatar_store.set_motion(avatar_id, True)
+            except Exception as e:  # noqa: BLE001
+                print(f"[build-musetalk] motion auto-build o'tkazildi (xato): {e}")
+
+    started = jobs.start(avatar_id, "musetalk_prep", _rebuild)
     if not started:
         raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
     return {"ok": True, "state": "processing", "stage": "musetalk_prep"}
+
+
+@router.post("/{avatar_id}/build-motion")
+def build_motion(avatar_id: str, _: bool = Admin):
+    """Bosh-harakat primitivlarini (nod/tilt/turn/lean/neutral) quradi (2-faza).
+
+    Avatar artefakti tayyor bo'lishi kerak (idle + MuseTalk). Klip generatsiya
+    (LivePortrait) + preprocess (MuseTalk) — uzoq fon job."""
+    av = avatar_store.get_avatar(avatar_id)
+    if av is None:
+        raise HTTPException(404, "Avatar topilmadi")
+    if not avatar_portrait_file(avatar_id).is_file():
+        raise HTTPException(409, "Avval portret rasm yuklang")
+    if not av.get("real"):
+        raise HTTPException(409, "Avval avatar modelini quring (Idle + Artefakt)")
+    if jobs.is_running(avatar_id):
+        raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
+
+    def _job():
+        idle.generate_motion_clips(avatar_id)            # LivePortrait kliplar
+        preprocess.preprocess_motion_all_subprocess(avatar_id)  # MuseTalk artefaktlar
+        musetalk.invalidate(avatar_id)                   # kesh (motion) yangilansin
+        avatar_store.set_motion(avatar_id, True)
+
+    started = jobs.start(avatar_id, "motion", _job)
+    if not started:
+        raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
+    return {"ok": True, "state": "processing", "stage": "motion"}
 
 
 @router.get("/{avatar_id}/build")

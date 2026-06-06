@@ -29,7 +29,7 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
     id: "new", name: "Yangi avatar", role: "Virtual yordamchi", brand: "O‘zbekiston Temir Yo‘llari",
     brandShort: "UTY", status: "draft", accent: "#B98944",
     portrait: { ...GRADIENTS[0], initials: "Y" },
-    voice: "madina", language: "uz", extraMargin: 16, fps: 25,
+    voice: "madina", language: "uz", extraMargin: 16, fps: 25, maxDim: 1280,
     blinkRate: 4, headMotion: 0.45, persona: "", sessions: 0, avgLatency: 0, cacheRate: 0, csat: 0,
     suggestions: ["", "", ""], updated: "Bugun", respLen: "short", temperature: 0.4,
     speechRate: 0, hasPhoto: false,
@@ -74,6 +74,7 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
         clearInterval(pollRef.current); pollRef.current = null;
         if (st.state === "done") {
           if (st.stage === "musetalk_prep") set({ hasArtifact: true });
+          else if (st.stage === "motion") set({ hasMotion: true });
           else setIdleVer((v) => v + 1);
         }
         if (st.state === "error") setBuildErr(st.error || "Generatsiya xatosi");
@@ -102,6 +103,18 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
       pollRef.current = setInterval(pollBuild, 2500);
     } catch (e) {
       setBuildErr(e.message || "Artefakt yaratib bo'lmadi");
+    }
+  }
+  async function startBuildMotion() {
+    if (!savedId) return;
+    setBuildErr("");
+    try {
+      await API.buildMotion(savedId);
+      setBuild({ state: "processing", stage: "motion", running: true });
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(pollBuild, 2500);
+    } catch (e) {
+      setBuildErr(e.message || "Harakat yaratib bo'lmadi");
     }
   }
 
@@ -141,7 +154,8 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
             {tab === "persona"  && <TabPersona draft={draft} set={set} />}
             {tab === "motion"   && <TabMotion draft={draft} set={set}
               savedId={savedId} build={build} idleVer={idleVer} buildErr={buildErr}
-              onBuildIdle={startBuildIdle} onBuildMusetalk={startBuildMusetalk} />}
+              onBuildIdle={startBuildIdle} onBuildMusetalk={startBuildMusetalk}
+              onBuildMotion={startBuildMotion} />}
             {tab === "sugg"     && <TabSugg draft={draft} set={set} />}
             {tab === "brand"    && <TabBrand draft={draft} set={set} setP={setP} />}
           </div>
@@ -252,6 +266,21 @@ function TabPortrait({ draft, set, setP, savedId, uploading, photoErr, photoVer,
 
 /* ── Tab: Voice & Language ── */
 function TabVoice({ draft, set }) {
+  // Ovoz namunasi (preview) — ▶ bosilganda o'sha ovozni o'z tilida eshittiradi.
+  const [playing, setPlaying] = useState("");
+  const audioRef = useRef(null);
+  useEffect(() => () => { if (audioRef.current) audioRef.current.pause(); }, []);
+  function preview(e, id) {
+    e.stopPropagation();   // karta tanlanmasin, faqat eshitilsin
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (playing === id) { setPlaying(""); return; }
+    const a = new Audio(API.voicePreviewUrl(id));
+    audioRef.current = a;
+    a.onended = () => setPlaying("");
+    a.onerror = () => setPlaying("");
+    a.play().catch(() => setPlaying(""));
+    setPlaying(id);
+  }
   // Til o'zgarganda joriy ovoz o'sha tilga mos bo'lmasa, birinchi mos ovozni tanlaymiz.
   const pickLang = (code) => {
     const cur = VOICES.find((v) => v.id === draft.voice);
@@ -280,7 +309,9 @@ function TabVoice({ draft, set }) {
                 <div className="ed-voice-name">{v.name}</div>
                 <div className="ed-voice-sub">{v.gender} · {v.tag}</div>
               </div>
-              <div className="ed-voice-play"><I.play size={12} /></div>
+              <div className={"ed-voice-play" + (playing === v.id ? " on" : "")} onClick={(e) => preview(e, v.id)} title="Eshitish">
+                {playing === v.id ? <I.pause size={12} /> : <I.play size={12} />}
+              </div>
             </button>
           ))}
         </div>
@@ -320,12 +351,15 @@ function TabPersona({ draft, set }) {
 }
 
 /* ── Tab: Motion / Lip-sync ── */
-function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle, onBuildMusetalk }) {
+function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle, onBuildMusetalk, onBuildMotion }) {
   const state = build && build.state;
   const stage = build && build.stage;
   const processing = !!(build && (build.running || state === "processing"));
   const idleProcessing = processing && stage === "idle_gen";
   const mtProcessing = processing && stage === "musetalk_prep";
+  const motionProcessing = processing && stage === "motion";
+  const motionDone = !!draft.hasMotion;
+  const canBuildMotion = savedId && !!draft.hasArtifact && !processing;
   // Idle tayyor: shu sessiyada yasaldi, yoki artefakt mavjud (idle undan oldin shart edi).
   const idleDone = (stage === "idle_gen" && state === "done") || stage === "musetalk_prep" || !!draft.hasArtifact;
   const mtDone = !!draft.hasArtifact;
@@ -348,6 +382,11 @@ function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle,
             options={[{value:"20",label:"20"},{value:"25",label:"25"},{value:"30",label:"30"}]} />
         </Field>
       </Row2>
+
+      <Field label="Sifat / Tezlik" hint="720p = tezroq (real-time suhbat uchun); 1080p = tiniqroq (Video Studiya uchun, lekin sekinroq). Bu sozlama BIR ZUMDA qo‘llanadi — saqlasangiz bo‘ldi, qayta qurish SHART EMAS (avatar 1080p bazada quriladi, ishlatishda kerakli o‘lchamga moslanadi).">
+        <Segmented value={String(draft.maxDim || 1280)} onChange={(v) => set({ maxDim: parseInt(v) })}
+          options={[{value:"1280",label:"Tez · 720p"},{value:"1920",label:"Sifat · 1080p"}]} />
+      </Field>
 
       <Field label="1-qadam · Idle video" hint="Portretdan blink animatsiyasi yaratadi. Parametrlarni o‘zgartirsangiz qayta yarating.">
         <div className="ed-idle">
@@ -375,6 +414,19 @@ function TabMotion({ draft, set, savedId, build, idleVer, buildErr, onBuildIdle,
         </div>
         {mtProcessing && <div className="ed-progress"><div className="ed-progress-bar" /></div>}
       </Field>
+
+      <Field label="3-qadam · Bosh harakati (Video Studiya)" hint="GPT rejasi bo'yicha bosh harakati (nod/tilt/turn/lean) primitivlarini quradi. Video Studiya'da gapirganda bosh tabiiy harakatlanadi. Bir marta quriladi.">
+        <div className="ed-idle">
+          <Btn kind={motionDone ? "ghost" : "primary"} icon="bolt"
+            onClick={onBuildMotion} disabled={!canBuildMotion}>
+            {motionProcessing ? "Qurilmoqda…" : motionDone ? "Qayta qurish" : "Harakat qurish"}
+          </Btn>
+          {motionProcessing && <span className="ed-idle-st">Primitivlar (7 ta) yaratilmoqda, ~3–6 daqiqa…</span>}
+          {motionDone && !motionProcessing && <span className="ed-idle-st ok">Tayyor — bosh harakati yoqilgan</span>}
+        </div>
+        {motionProcessing && <div className="ed-progress"><div className="ed-progress-bar" /></div>}
+      </Field>
+
       {!savedId && (
         <div className="ed-note"><I.bolt size={14} /><span>Idle yaratish uchun avatarni <b>saqlang</b> va portret yuklang.</span></div>
       )}

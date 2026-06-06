@@ -30,6 +30,27 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None):
     use_voice = voice or (avatar or {}).get("voice", "madina")
     fps = int((avatar or {}).get("fps", 25)) or 25
 
+    # ── TAYYOR JAVOB (pre-rendered Q&A) ── Savol biror tayyor javobga mos kelsa,
+    # GPT+TTS+jonli-gen'ni butunlay o'tkazib, tayyor videoni DARROV beramiz (idle
+    # bilan silliq). Mos kelmasa/embeddings yo'q bo'lsa — oddiy quvurga tushadi.
+    if avatar_id:
+        try:
+            from app.services import canned
+            hit = canned.match(avatar_id, user_text)
+        except Exception:  # noqa: BLE001
+            hit = None
+        if hit:
+            ans = (hit.get("text") or "").strip()
+            yield {"type": "text", "text": ans, "t": 0.0}
+            try:
+                avatar_store.log_event(avatar_id, user_text, False, gpt=0, tts=0, video=0, total=0)
+            except Exception:  # noqa: BLE001
+                pass
+            yield {"type": "stream", "url": canned.video_url(hit["id"]),
+                   "timing": {"gpt": 0.0, "tts": 0.0}, "canned": True}
+            yield {"type": "done"}
+            return
+
     # GPT — voice rejimi (to'liq, markdownsiz)
     if avatar:
         system_prompt, max_tokens = build_system_prompt(
@@ -85,8 +106,10 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None):
         except Exception:
             pass
 
+    from app.services import musetalk
     with _PENDING_LOCK:
-        _PENDING[sid] = {"wav": wav, "avatar_id": avatar_id, "fps": fps}
+        _PENDING[sid] = {"wav": wav, "avatar_id": avatar_id, "fps": fps,
+                         "max_dim": musetalk.use_max_dim(avatar)}
     yield {"type": "stream", "url": f"/api/realtime/stream/{sid}",
            "timing": {"gpt": gpt_t, "tts": tts_t}}
     yield {"type": "done"}

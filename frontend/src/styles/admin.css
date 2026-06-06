@@ -356,3 +356,90 @@
 .toast-error{ background:var(--err); border-color:var(--err-soft); color:#fff; }
 .toast-success{ background:var(--ok); border-color:var(--ok-soft); color:#fff; }
 @keyframes toast-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+
+/* ── Video Studiya (premium — editorial dizayn tizimi) ── */
+.vs-grid{ display:grid; grid-template-columns:360px 1fr; gap:24px; align-items:start; }
+@media (max-width:1040px){ .vs-grid{ grid-template-columns:1fr; } }
+
+/* forma */
+.vs-form{ padding:22px; display:flex; flex-direction:column; gap:9px; }
+.vs-form .as-label{ margin-top:8px; }
+.vs-h{ font-family:var(--font-display); font-size:19px; color:var(--ink); letter-spacing:-.3px; margin-bottom:4px; }
+.vs-input{ width:100%; padding:11px 13px; border-radius:var(--radius); border:1px solid var(--line);
+  background:var(--bg); color:var(--ink); font-family:var(--font-body); font-size:14px; transition:.15s; }
+.vs-input:focus{ outline:0; border-color:var(--brass); box-shadow:0 0 0 3px color-mix(in srgb, var(--brass) 16%, transparent); }
+.vs-ta{ resize:vertical; line-height:1.55; min-height:92px; }
+.vs-cnt{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-3); text-align:right; }
+.vs-row{ display:flex; gap:14px; align-items:flex-end; }
+.vs-hd{ display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600; color:var(--ink); padding-bottom:11px; white-space:nowrap; cursor:pointer; }
+.vs-hd input{ accent-color:var(--brass); width:15px; height:15px; }
+
+/* kutubxona */
+.vs-lib{ min-width:0; }
+.vs-lib-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:18px; }
+.vs-item{ padding:0; overflow:hidden; display:flex; flex-direction:column; border:1px solid var(--line);
+  border-radius:var(--radius-lg); background:var(--card); transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; animation:vs-in .35s ease both; }
+.vs-item:hover{ transform:translateY(-3px); box-shadow:var(--shadow); border-color:var(--brass); }
+@keyframes vs-in{ from{ opacity:0; transform:translateY(10px) scale(.98); } to{ opacity:1; transform:none; } }
+.vs-video{ width:100%; aspect-ratio:3/4; object-fit:cover; object-position:center top; background:var(--navy); display:block; }
+/* Fullscreen (kattalashtirish): butun kadrni ko'rsat (letterbox) — kesmasin/tepaga
+   yopishmasin. Karta eskizida cover+top qoladi, fullscreen'da contain+center. */
+.vs-video:fullscreen,
+.vs-video:-webkit-full-screen{ object-fit:contain; object-position:center; width:100%; height:100%; background:#000; }
+.vs-item-t{ font-family:var(--font-display); font-size:16px; color:var(--ink); padding:12px 14px 0; letter-spacing:-.2px; line-height:1.25; }
+.vs-item-m{ font-family:var(--font-mono); font-size:9.5px !important; text-transform:uppercase; letter-spacing:.6px; padding:4px 14px 0; }
+.vs-item-foot{ display:flex; align-items:center; justify-content:space-between; padding:12px 14px 14px; margin-top:auto; }
+.vs-dl{ display:inline-flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:10px; text-transform:uppercase;
+  letter-spacing:1px; color:var(--brass); text-decoration:none; font-weight:600; transition:.13s; }
+.vs-dl:hover{ color:var(--brass-2); }
+.vs-del{ background:transparent; border:1px solid var(--line); border-radius:var(--radius); cursor:pointer; color:var(--ink-3); padding:5px; display:flex; transition:.13s; }
+.vs-del:hover{ color:var(--err); border-color:var(--err); background:color-mix(in srgb, var(--err) 8%, transparent); }
+.vs-empty{ padding:48px; text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px; color:var(--ink-2); }
+.vs-empty svg{ color:var(--brass); }
+
+/* generatsiya kutish paneli */
+.vs-gen{ margin-top:16px; padding:16px; border:1px solid var(--line); border-radius:var(--radius-lg);
+  background:var(--panel); box-shadow:var(--shadow-sm); animation:vs-gen-in .32s ease-in-out both; }
+.vs-gen.done{ border-color:var(--brass); }
+@keyframes vs-gen-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+.vs-gen-top{ display:flex; align-items:center; gap:13px; margin-bottom:14px; }
+.vs-gen-av{ width:48px; height:48px; border-radius:50%; object-fit:cover; object-position:center top; flex:none; animation:vs-breathe 2.6s ease-in-out infinite; }
+@keyframes vs-breathe{ 0%,100%{ transform:scale(1); box-shadow:0 0 0 2px var(--brass); } 50%{ transform:scale(1.06); box-shadow:0 0 0 6px color-mix(in srgb, var(--brass) 28%, transparent); } }
+.vs-gen.done .vs-gen-av{ animation:vs-pop .55s ease; box-shadow:0 0 0 3px var(--brass); }
+@keyframes vs-pop{ 0%{ transform:scale(.85); } 55%{ transform:scale(1.13); } 100%{ transform:scale(1); } }
+.vs-gen-wave{ display:flex; align-items:center; gap:3px; height:32px; flex:1; }
+.vs-gen-wave span{ flex:1; max-width:5px; height:100%; border-radius:3px; background:var(--brass); transform:scaleY(.25); transform-origin:center; animation:vs-wave 1s ease-in-out infinite; }
+.vs-gen.done .vs-gen-wave span{ animation-play-state:paused; transform:scaleY(.35); opacity:.5; }
+@keyframes vs-wave{ 0%,100%{ transform:scaleY(.22); } 50%{ transform:scaleY(1); } }
+.vs-pbar{ height:8px; border-radius:99px; background:var(--panel-2); overflow:hidden; }
+.vs-pbar-fill{ height:100%; border-radius:99px; transition:width .45s cubic-bezier(.4,0,.2,1); background:linear-gradient(90deg, var(--brass), var(--brass-2)); position:relative; overflow:hidden; }
+.vs-pbar-fill::after{ content:""; position:absolute; inset:0; transform:translateX(-100%); background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation:vs-shimmer 1.5s ease-in-out infinite; }
+.vs-gen.done .vs-pbar-fill::after{ display:none; }
+@keyframes vs-shimmer{ 0%{ transform:translateX(-100%); } 100%{ transform:translateX(240%); } }
+.vs-gen-meta{ display:flex; align-items:center; justify-content:space-between; margin-top:11px; font-size:13px; }
+.vs-gen-stage{ display:flex; align-items:center; gap:8px; color:var(--brass); font-weight:600; }
+.vs-prog-time{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+.vs-spin{ width:13px; height:13px; border:2px solid var(--brass); border-top-color:transparent; border-radius:50%; animation:vs-rot .8s linear infinite; flex:none; }
+@keyframes vs-rot{ to{ transform:rotate(360deg); } }
+.vs-steps{ list-style:none; margin:14px 0 0; padding:0; display:flex; flex-direction:column; gap:9px; }
+.vs-step{ display:flex; align-items:center; gap:10px; font-size:13px; color:var(--ink-3); opacity:.6; transition:color .3s ease, opacity .3s ease; }
+.vs-step.active{ color:var(--ink); opacity:1; font-weight:600; }
+.vs-step.done{ color:var(--ink-2); opacity:1; }
+.vs-step-ic{ width:19px; height:19px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; border:1.5px solid currentColor; flex:none; }
+.vs-step.done .vs-step-ic{ background:var(--brass); border-color:var(--brass); color:var(--on-navy); animation:vs-tick .32s ease; }
+.vs-step.active .vs-step-ic{ border-color:var(--brass); color:var(--brass); animation:vs-stp 1.1s ease-in-out infinite; }
+@keyframes vs-tick{ 0%{ transform:scale(.3); } 60%{ transform:scale(1.25); } 100%{ transform:scale(1); } }
+@keyframes vs-stp{ 0%,100%{ box-shadow:0 0 0 0 color-mix(in srgb, var(--brass) 45%, transparent); } 50%{ box-shadow:0 0 0 5px transparent; } }
+.vs-fact{ margin-top:14px; padding:10px 13px; border-radius:var(--radius); line-height:1.55; font-size:12.5px; color:var(--ink-2);
+  background:color-mix(in srgb, var(--brass) 9%, transparent); border-left:2px solid var(--brass); animation:vs-fact-in .5s ease; }
+@keyframes vs-fact-in{ from{ opacity:0; transform:translateY(4px); } to{ opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce){ .vs-gen-av,.vs-gen-wave span,.vs-pbar-fill::after,.vs-step.active .vs-step-ic,.vs-item{ animation:none; } }
+
+/* generatsiya — markaziy modal + orqa fon blur */
+.vs-overlay{ position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center; padding:24px;
+  background:color-mix(in srgb, var(--navy) 36%, transparent); backdrop-filter:blur(7px) saturate(1.05);
+  -webkit-backdrop-filter:blur(7px) saturate(1.05); animation:vs-ov-in .25s ease; }
+@keyframes vs-ov-in{ from{ opacity:0; } to{ opacity:1; } }
+.vs-overlay .vs-gen{ width:min(440px, 94vw); margin-top:0; background:var(--card); box-shadow:var(--shadow);
+  animation:vs-modal-in .3s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes vs-modal-in{ from{ opacity:0; transform:translateY(14px) scale(.95); } to{ opacity:1; transform:none; } }

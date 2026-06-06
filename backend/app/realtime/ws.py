@@ -42,6 +42,7 @@ def realtime_stream(token: str):
         try:
             for chunk in musetalk.musetalk_infer_stream(
                 wav, fps=info["fps"], avatar_id=info["avatar_id"],
+                max_dim=info.get("max_dim"),
             ):
                 yield chunk
         finally:

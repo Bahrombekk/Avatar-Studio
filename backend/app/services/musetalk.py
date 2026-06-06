@@ -8,9 +8,11 @@ eski madina_lp artefakti (MT_DIR) fallback bo'ladi. Yuklangan artefaktlar keshla
 import glob
 import os
 import pickle
+import random
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 
 from app.core.paths import (
     MT_DIR, AVATAR_LATENTS, AVATAR_COORDS, AVATAR_MASK_COORD,
@@ -39,6 +41,125 @@ _timesteps = _weight_dtype = _device = None
 _avatars = {}
 _avatars_lock = threading.Lock()
 _LEGACY_KEY = "_legacy_madina_lp"
+
+# ── GPU bandwidth cheklovi (bir nechta foydalanuvchi) ──
+# Bir vaqtda nechta inference GPU'da yurishi mumkin. Cheklov bo'lmasa, ko'p user
+# bir vaqtda kelsa VRAM portlaydi va hammaga keskin sekinlashadi. Generatsiya
+# BURST-li (user gapiradi → ~2s video → uzoq tinglaydi) bo'lgani uchun bitta GPU
+# bir nechta foydalanuvchini navbat bilan bemalol uddalaydi. Slot FAQAT haqiqiy
+# GPU hisoblash davomida ushlanadi (ffmpeg/tarmoq slotni band qilmaydi).
+# Sozlash: RT_GPU_SLOTS (default 2). RTX 5090 32GB → 2 inference bemalol sig'adi.
+_GPU_SLOTS = max(1, int(os.environ.get("RT_GPU_SLOTS", "2")))
+_gpu_sem = threading.BoundedSemaphore(_GPU_SLOTS)
+
+# Inference batch hajmi. Kattaroq batch → kamroq kernel launch → GPU to'liqroq
+# band → tezroq (sifat O'ZGARMAYDI — faqat guruhlash). RTX 5090 32GB kattasini
+# ko'taradi. Sozlash: MT_BATCH (default 16).
+_BATCH = max(1, int(os.environ.get("MT_BATCH", "16")))
+
+# Og'iz tiniqligi: MuseTalk og'izni 256x256'da yaratadi, keyin yuz o'lchamiga
+# kattalashtiriladi → yumshaydi. Yengil unsharp (nimqilich) + sifatli upscale
+# (INTER_CUBIC) buni qisman qoplaydi (tezlikka deyarli ta'sirsiz). 0 = o'chiq.
+# Halol: tub yechim emas (256 cheklovi), lekin bepul tiniqlik beradi.
+_SHARPEN = max(0.0, float(os.environ.get("RT_SHARPEN", "0.55")))
+
+# Lab↔ovoz vaqt mosligi: doimiy ofset (sekund). MuseTalk drift bermaydi (kadr
+# soni = audio×fps aniq), lekin lab biroz oldinda/orqada tuyulsa shu bilan nudge.
+# +qiymat → ovoz KECHIKADI (lab oldin harakatlansa); -qiymat → ovoz OLDINGA.
+_AUDIO_OFFSET = float(os.environ.get("RT_AUDIO_OFFSET", "0"))
+
+
+def _audio_offset_args():
+    """ffmpeg audio kirishidan oldin -itsoffset (0 bo'lsa bo'sh)."""
+    return ["-itsoffset", f"{_AUDIO_OFFSET}"] if _AUDIO_OFFSET else []
+
+
+def _sharpen_region(img, amount):
+    """Yengil unsharp mask (cv2 GIL'ni bo'shatadi → arzon). amount<=0 → o'zgarishsiz."""
+    if amount <= 0:
+        return img
+    import cv2
+    blur = cv2.GaussianBlur(img, (0, 0), 1.0)
+    return cv2.addWeighted(img, 1.0 + amount, blur, -amount, 0)
+
+
+# Harakat takrorlanmasin: har generatsiya sikl kadrlarini TASODIFIY nuqtadan
+# boshlaydi → har javob boshqa bosh pozasi/harakatdan ochiladi. Barcha massivlar
+# (latent/coord/mask/frame) BIR XIL ofsetga aylantiriladi → moslik buzilmaydi.
+# RT_VARY_MOTION=0 → o'chiq (har doim 0-kadr).
+_VARY_MOTION = os.environ.get("RT_VARY_MOTION", "1") != "0"
+
+
+def _rotate(seq, start):
+    """Ro'yxatni `start` nuqtadan aylantiradi (yangi ro'yxat — kesh buzilmaydi)."""
+    if start <= 0:
+        return seq
+    return seq[start:] + seq[:start]
+
+
+def _cycle_start(n):
+    """Sikl uchun tasodifiy boshlanish indeksi (RT_VARY_MOTION o'chiq bo'lsa 0)."""
+    if not _VARY_MOTION or n <= 1:
+        return 0
+    return random.randint(0, n - 1)
+
+
+@contextmanager
+def _gpu_slot(tag: str = ""):
+    """GPU inference uchun bitta slot egallaydi (bandwidthni cheklaydi)."""
+    t0 = time.time()
+    _gpu_sem.acquire()
+    waited = time.time() - t0
+    if waited > 0.05:
+        print(f"[LP-MuseTalk] GPU navbatda kutildi {waited:.2f}s ({tag})")
+    try:
+        yield
+    finally:
+        _gpu_sem.release()
+
+
+def gpu_slots() -> int:
+    """Sozlangan bir vaqtdagi GPU slot soni (kuzatuv/test uchun)."""
+    return _GPU_SLOTS
+
+
+# ── Video kodlovchi tanlash (NVENC GPU-kodlash → CPU ffmpeg bottleneck'ini yo'qotadi) ──
+_ENCODER = None
+
+
+def _encoder_name() -> str:
+    """h264_nvenc (GPU) mavjud bo'lsa shuni, aks holda libx264 (CPU) tanlaydi.
+    Bir marta aniqlanib keshlanadi. Majburlash: VIDEO_ENCODER env."""
+    global _ENCODER
+    if _ENCODER is not None:
+        return _ENCODER
+    forced = os.environ.get("VIDEO_ENCODER")
+    if forced:
+        _ENCODER = forced
+        return _ENCODER
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, timeout=10).stdout
+        _ENCODER = "h264_nvenc" if "h264_nvenc" in out else "libx264"
+    except Exception:  # noqa: BLE001
+        _ENCODER = "libx264"
+    print(f"[LP-MuseTalk] Video kodlovchi: {_ENCODER}")
+    return _ENCODER
+
+
+def _venc_args(fps: int, hd: bool = False) -> list:
+    """ffmpeg video kodlash argumentlari. hd=True (offline Studio) → yuqoriroq sifat
+    (crf 16 + sekinroq preset; NVENC cq 17/p7). hd=False (real-time) → tez (crf 18).
+    NVENC ~5x tez, lekin x264 (slow) biroz tiniqroq — offline'da x264 afzal."""
+    enc = _encoder_name()
+    if enc == "h264_nvenc":
+        cq, pre = ("17", "p7") if hd else ("20", "p5")
+        return ["-c:v", "h264_nvenc", "-preset", pre, "-tune", "hq",
+                "-rc", "vbr", "-cq", cq, "-b:v", "0",
+                "-pix_fmt", "yuv420p", "-g", str(fps)]
+    crf, pre = ("16", "slow") if hd else ("18", "veryfast")
+    return ["-c:v", "libx264", "-preset", pre, "-crf", crf,
+            "-pix_fmt", "yuv420p", "-g", str(fps)]
 
 
 def is_loaded() -> bool:
@@ -87,6 +208,19 @@ def _load():
     _whisper.requires_grad_(False)
 
     _fp = FaceParsing(left_cheek_width=90, right_cheek_width=90)
+
+    # torch.compile — SINOVDAN O'TKAZILDI: bu workload (MuseTalk UNet FP16, batch=8)
+    # uchun tezlik DEYARLI O'ZGARMADI (~5%), lekin birinchi inference ~7 daqiqa
+    # kompilyatsiya qildi (warmup'ni buzadi). Shu sabab STANDART BO'YICHA O'CHIQ.
+    # Boshqa GPU/kelajak uchun opt-in: ENABLE_COMPILE=1. (Haqiqiy tezlik — TensorRT.)
+    if os.environ.get("ENABLE_COMPILE") == "1":
+        try:
+            _unet.model = torch.compile(_unet.model, dynamic=True)
+            _vae.vae = torch.compile(_vae.vae, dynamic=True)
+            print("[LP-MuseTalk] torch.compile yoqildi (UNet + VAE)")
+        except Exception as e:  # noqa: BLE001
+            print(f"[LP-MuseTalk] torch.compile o'tkazib yuborildi: {e}")
+
     _loaded = True
     print(f"[LP-MuseTalk] Asosiy modellar tayyor: {time.time()-t0:.1f}s")
 
@@ -117,48 +251,210 @@ def _resolve_artifact(avatar_id):
     return None, None
 
 
-def _get_artifact(avatar_id):
-    """Avatar artefaktini (keshlangan) qaytaradi. Topilmasa RuntimeError."""
+def _load_artifact_from_paths(paths) -> dict:
+    """Berilgan yo'llardan artefakt massivlarini yuklaydi (latents/coords/mask/frames).
+    PNG'lar parallel o'qiladi (cv2.imread GIL'ni bo'shatadi → tez)."""
+    import torch
+    import cv2
+    from concurrent.futures import ThreadPoolExecutor
+
+    latents = torch.load(str(paths["latents"]))
+    with open(paths["coords"], "rb") as f:
+        coords = pickle.load(f)
+    with open(paths["mask_coords"], "rb") as f:
+        mask_coords = pickle.load(f)
+    img_paths = sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))
+    mask_paths = sorted(glob.glob(str(paths["mask_dir"] / "*.png")))
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        frames = list(ex.map(cv2.imread, img_paths))
+        masks = list(ex.map(cv2.imread, mask_paths))
+    return {"latents": latents, "coords": coords, "mask_coords": mask_coords,
+            "frames": frames, "masks": masks}
+
+
+def use_max_dim(avatar) -> int:
+    """Avatar ISHLATISH (output) rezolyutsiyasi: 1280 (tez/720p) yoki 1920 (sifat/1080p).
+    avatar.json 'maxDim' bilan boshqariladi — BIR ZUMDA o'zgaradi, qayta qurish SHART
+    EMAS. Artefakt har doim 1920 bazada quriladi; bu yerda kerakli o'lchamga
+    KICHRAYTIRILADI (latent'lar 256 og'iz — rezolyutsiyadan mustaqil)."""
+    try:
+        v = int((avatar or {}).get("maxDim", 1280))
+    except (TypeError, ValueError):
+        v = 1280
+    return v if v in (1280, 1920) else 1280
+
+
+def _target_ratio(art, max_dim) -> float:
+    """Artefakt kadrining uzun tomonini max_dim'ga keltirish nisbati (<=1.0).
+    max_dim yo'q yoki kadr allaqachon kichik bo'lsa 1.0 (kichraytirish yo'q;
+    UPSCALE qilinmaydi — 1280 bazadan 1080 yasab bo'lmaydi)."""
+    frames = art.get("frames") or []
+    if not max_dim or not frames:
+        return 1.0
+    h, w = frames[0].shape[:2]
+    long = max(h, w)
+    if long <= int(max_dim):
+        return 1.0
+    return int(max_dim) / float(long)
+
+
+def _downscale_artifact(art, ratio) -> dict:
+    """Artefaktni `ratio` (<1) bo'yicha kichraytiradi — full_imgs/mask rasm o'lchami,
+    coords/mask_coords koordinatalari proporsional masshtablanadi. LATENT'lar (256
+    og'iz) O'ZGARMAYDI. Og'iz inference paytida 256'dan kichikroq bbox'ga tushadi
+    → tabiiy tiniqlik + tezroq composite (native-720'ga teng natija)."""
+    import cv2
+    if ratio >= 0.999:
+        return art
+    keys = ("latents", "coords", "mask_coords", "frames", "masks")
+    n = len(art["frames"])
+    frames, masks, coords, mcoords = [], [], [], []
+    for i in range(n):
+        f = art["frames"][i]
+        h, w = f.shape[:2]
+        nw, nh = max(2, int(round(w * ratio))), max(2, int(round(h * ratio)))
+        frames.append(cv2.resize(f, (nw, nh), interpolation=cv2.INTER_AREA))
+        nc = [int(round(float(v) * ratio)) for v in art["coords"][i]]
+        nmc = [int(round(float(v) * ratio)) for v in art["mask_coords"][i]]
+        coords.append(nc)
+        mcoords.append(nmc)
+        # Mask o'lchami crop_box (mask_coords) o'lchamiga AYNAN teng bo'lishi shart
+        # (PIL paste mask buni talab qiladi) — masshtablangan crop_box'dan hisoblaymiz.
+        mw = max(1, nmc[2] - nmc[0])
+        mh = max(1, nmc[3] - nmc[1])
+        masks.append(cv2.resize(art["masks"][i], (mw, mh), interpolation=cv2.INTER_AREA))
+    return {"latents": art["latents"], "coords": coords, "mask_coords": mcoords,
+            "frames": frames, "masks": masks}
+
+
+def _get_artifact(avatar_id, max_dim=None):
+    """Avatar artefaktini (keshlangan) qaytaradi. max_dim berilsa — o'sha output
+    rezolyutsiyasiga kichraytirilgan variant (alohida keshlanadi). Topilmasa RuntimeError."""
     key, paths = _resolve_artifact(avatar_id)
     if key is None:
         raise RuntimeError(
             "Avatar artefakti topilmadi — avval MuseTalk preprocessing bajaring"
         )
     with _avatars_lock:
-        cached = _avatars.get(key)
-    if cached is not None:
-        return cached
-
-    import torch
-    import cv2
-    from concurrent.futures import ThreadPoolExecutor
-
-    t1 = time.time()
-    latents = torch.load(str(paths["latents"]))
-    with open(paths["coords"], "rb") as f:
-        coords = pickle.load(f)
-    with open(paths["mask_coords"], "rb") as f:
-        mask_coords = pickle.load(f)
-    # 200 kadr + 200 mask PNG — PARALLEL o'qiymiz (DrvFs'da ketma-ket o'qish sekin;
-    # cv2.imread GIL'ni bo'shatadi → parallel I/O birinchi yuklashni keskin tezlashtiradi).
-    img_paths = sorted(glob.glob(str(paths["imgs_dir"] / "*.png")))
-    mask_paths = sorted(glob.glob(str(paths["mask_dir"] / "*.png")))
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        frames = list(ex.map(cv2.imread, img_paths))
-        masks = list(ex.map(cv2.imread, mask_paths))
-
-    art = {"latents": latents, "coords": coords, "mask_coords": mask_coords,
-           "frames": frames, "masks": masks}
+        native = _avatars.get(key)
+    if native is None:
+        t1 = time.time()
+        native = _load_artifact_from_paths(paths)
+        with _avatars_lock:
+            _avatars[key] = native
+        print(f"[LP-MuseTalk] Artefakt '{key}': {len(native['frames'])} kadr ({time.time()-t1:.1f}s)")
+    if not max_dim:
+        return native
+    ratio = _target_ratio(native, max_dim)
+    if ratio >= 0.999:
+        return native   # baza allaqachon shu o'lchamda (yoki kichikroq)
+    skey = (key, int(max_dim))
     with _avatars_lock:
-        _avatars[key] = art
-    print(f"[LP-MuseTalk] Artefakt '{key}': {len(frames)} kadr ({time.time()-t1:.1f}s)")
+        scaled = _avatars.get(skey)
+    if scaled is not None:
+        return scaled
+    t2 = time.time()
+    scaled = _downscale_artifact(native, ratio)
+    with _avatars_lock:
+        _avatars[skey] = scaled
+    print(f"[LP-MuseTalk] Artefakt '{key}' @{max_dim} ({ratio:.3f}x): "
+          f"{len(scaled['frames'])} kadr ({time.time()-t2:.1f}s)")
+    return scaled
+
+
+# ── 2-faza: harakat primitivlari (nod/tilt/.../neutral) keshi + yig'uvchi ──
+_motion = {}   # (avatar_id, mtype) → artefakt
+
+
+def _get_motion_artifact(avatar_id, mtype):
+    """Harakat primitivi artefaktini (keshlangan) yuklaydi (motion/<type>/)."""
+    key = (avatar_id, mtype)
+    with _avatars_lock:
+        c = _motion.get(key)
+    if c is not None:
+        return c
+    from app.core.paths import avatar_motion_artifact
+    d = avatar_motion_artifact(avatar_id, mtype)
+    if not (d / "latents.pt").is_file():
+        raise RuntimeError(f"Harakat artefakti yo'q: {mtype} (avval qayta quring)")
+    paths = {"latents": d / "latents.pt", "coords": d / "coords.pkl",
+             "mask_coords": d / "mask_coords.pkl", "imgs_dir": d / "full_imgs",
+             "mask_dir": d / "mask"}
+    art = _load_artifact_from_paths(paths)
+    with _avatars_lock:
+        _motion[key] = art
     return art
 
 
+def assemble_motion_artifact(avatar_id, sequence) -> dict:
+    """sequence = harakat turlari ro'yxati (masalan ['neutral','nod','neutral']) →
+    ularning massivlarini KETMA-KET ulaydi (bitta assembled artefakt). Har primitiv
+    neytralda boshlanib-tugagani uchun chegaralar silliq."""
+    L, C, MC, F, M = [], [], [], [], []
+    for mt in sequence:
+        a = _get_motion_artifact(avatar_id, mt)
+        L += list(a["latents"]); C += list(a["coords"]); MC += list(a["mask_coords"])
+        F += list(a["frames"]); M += list(a["masks"])
+    return {"latents": L, "coords": C, "mask_coords": MC, "frames": F, "masks": M}
+
+
+def _resample_artifact(art, k):
+    """Artefakt massivlaridan k kadr tanlaydi (silliq qayta namuna). speed nazorati:
+    primitivni kamroq kadrga (tez) yoki ko'proq kadrga (sekin) cho'zish."""
+    n = len(art["frames"])
+    if k <= 0 or n == 0:
+        return {kk: [] for kk in ("latents", "coords", "mask_coords", "frames", "masks")}
+    if n == k:
+        idxs = range(n)
+    else:
+        idxs = [min(n - 1, round(i * (n - 1) / max(1, k - 1))) for i in range(k)]
+    return {kk: [art[kk][j] for j in idxs]
+            for kk in ("latents", "coords", "mask_coords", "frames", "masks")}
+
+
+def _natural_fill(art, k):
+    """Neytral idle'ni 1x (tabiiy) tempda k kadrga to'ldiradi — klipni LOOP qiladi,
+    SIQMAYDI. Neytral klip chetlarda neytral (enveloped) bo'lgani uchun loop silliq.
+    Resample (siqish) neytralni tezlashtirib, video boshida 'birdaniga tez harakat'
+    effektini berardi — buni oldini oladi."""
+    n = len(art["frames"])
+    keys = ("latents", "coords", "mask_coords", "frames", "masks")
+    if k <= 0 or n == 0:
+        return {kk: [] for kk in keys}
+    idxs = [i % n for i in range(k)]
+    return {kk: [art[kk][j] for j in idxs] for kk in keys}
+
+
+def assemble_motion_timeline(avatar_id, units) -> dict:
+    """units = [(mtype, n_frames), ...] → bosh-harakat timeline'i (audio bilan kadr-aniq).
+    NEYTRAL → tabiiy tempda loop (siqilmaydi); MOTION primitivlar → resample (gesture
+    davomiyligini segmentga moslash uchun tezlik nazorati). Chegaralar neytral."""
+    L, C, MC, F, M = [], [], [], [], []
+    for mt, k in units:
+        if k <= 0:
+            continue
+        a = _get_motion_artifact(avatar_id, mt)
+        r = _natural_fill(a, int(k)) if mt == "neutral" else _resample_artifact(a, int(k))
+        L += r["latents"]; C += r["coords"]; MC += r["mask_coords"]
+        F += r["frames"]; M += r["masks"]
+    return {"latents": L, "coords": C, "mask_coords": MC, "frames": F, "masks": M}
+
+
+def has_motion(avatar_id, mtype="neutral") -> bool:
+    """Avatar uchun harakat primitivi artefakti mavjudmi."""
+    from app.core.paths import avatar_motion_artifact
+    return (avatar_motion_artifact(avatar_id, mtype) / "latents.pt").is_file()
+
+
 def invalidate(avatar_id):
-    """Avatar artefakt keshini bo'shatadi (preprocessing qayta yasalgach)."""
+    """Avatar artefakt keshini bo'shatadi (preprocessing qayta yasalgach) —
+    native + barcha kichraytirilgan (max_dim) variantlar."""
     with _avatars_lock:
-        _avatars.pop(avatar_id, None)
+        for k in [k for k in _avatars
+                  if k == avatar_id or (isinstance(k, tuple) and k[0] == avatar_id)]:
+            _avatars.pop(k, None)
+        for k in [k for k in _motion if k[0] == avatar_id]:
+            _motion.pop(k, None)
 
 
 def warmup():
@@ -186,22 +482,28 @@ def warmup():
     print(f"[LP-MuseTalk] Warmup: {time.time()-t:.1f}s")
 
 
-def preload_artifact(avatar_id: str) -> bool:
+def preload_artifact(avatar_id: str, max_dim=None) -> bool:
     """Avatar artefaktini (200 kadr/mask PNG) keshга oldindan yuklaydi.
 
     Birinchi so'rov sekin bo'lmasligi uchun startupda chaqiriladi — aks holda
     foydalanuvchining BIRINCHI savolida artefakt diskdan (sekin DrvFs) o'qiladi.
+    max_dim berilsa — ishlatiladigan (kichraytirilgan) variant ham isitiladi.
     """
     try:
         ensure_loaded()
-        _get_artifact(avatar_id)
+        _get_artifact(avatar_id, max_dim)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[LP-MuseTalk] preload '{avatar_id}' ogohlantirish: {e}")
         return False
 
 
-def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None) -> bool:
+def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = None,
+                   hd: bool = False, artifact: dict = None, max_dim=None) -> bool:
+    """To'liq video fayl (offline). hd=True → kuchliroq tiniqlik (Video Studiya).
+    max_dim — chiqish rezolyutsiyasi (1280/1920); artefakt shunga kichraytiriladi.
+    artifact berilsa — o'sha (assembled, bosh harakatli) artefakt ishlatiladi
+    (avatar_id keshidan emas) va kerak bo'lsa o'sha ham kichraytiriladi."""
     import torch
     import cv2
     import numpy as np
@@ -210,14 +512,37 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
     from musetalk.utils.blending import get_image_blending
 
     ensure_loaded()
+    # HD'da GFPGAN tiniqlikni o'zi beradi → qo'shimcha sharpen O'CHIRILADI (sharpen
+    # 256→kattalashgan og'izdagi shovqinni kuchaytirib, lab "qaltirashi"ni keltirardi).
+    _hd_sharpen = 0.0 if hd else _SHARPEN
+    _prof = os.environ.get("RT_PROFILE") == "1"
+    _pt = time.time()
+
+    def _lap(name):
+        nonlocal _pt
+        if _prof:
+            import torch as _t
+            _t.cuda.synchronize()
+            print(f"[PROFILE] {name}: {time.time()-_pt:.3f}s")
+            _pt = time.time()
 
     try:
-        art = _get_artifact(avatar_id)
-        _input_latent_list_cycle = art["latents"]
-        _coord_list_cycle = art["coords"]
-        _mask_coords_list_cycle = art["mask_coords"]
-        _frame_list_cycle = art["frames"]
-        _mask_list_cycle = art["masks"]
+        # artifact berilsa (assembled, bosh harakatli) — aylantirmaymiz (tartib muhim).
+        if artifact is not None:
+            art = artifact
+            if max_dim:
+                _r = _target_ratio(art, max_dim)
+                if _r < 0.999:
+                    art = _downscale_artifact(art, _r)
+        else:
+            art = _get_artifact(avatar_id, max_dim)
+        _start = 0 if artifact is not None else _cycle_start(len(art["frames"]))
+        _input_latent_list_cycle = _rotate(art["latents"], _start)
+        _coord_list_cycle = _rotate(art["coords"], _start)
+        _mask_coords_list_cycle = _rotate(art["mask_coords"], _start)
+        _frame_list_cycle = _rotate(art["frames"], _start)
+        _mask_list_cycle = _rotate(art["masks"], _start)
+        _lap("artefakt")
 
         # 1. Whisper audio xususiyatlari
         whisper_input_features, librosa_length = _audio_processor.get_audio_feature(
@@ -228,12 +553,13 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             fps=fps, audio_padding_length_left=2, audio_padding_length_right=2,
         )
         video_num = len(whisper_chunks)
+        _lap("whisper")
 
-        # 2. Batch inference
-        batch_size = 8
+        # 2. Batch inference (GPU slot bilan cheklangan — multi-user xavfsizligi)
+        batch_size = _BATCH
         gen = datagen(whisper_chunks, _input_latent_list_cycle, batch_size)
         res_frame_list = []
-        with torch.inference_mode():
+        with _gpu_slot("infer"), torch.inference_mode():
             for whisper_batch, latent_batch in gen:
                 audio_feature_batch = _pe(whisper_batch.to(_device))
                 latent_batch = latent_batch.to(device=_device, dtype=_unet.model.dtype)
@@ -244,6 +570,21 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
                 recon = _vae.decode_latents(pred_latents)
                 for res_frame in recon:
                     res_frame_list.append(res_frame)
+        _lap("GPU (UNet+VAE)")
+
+        # 2.5 TEMPORAL SILLIQLASH (lab titrashini kamaytirish). MuseTalk har og'iz
+        #     kadrini MUSTAQIL yaratadi → kadrlararo mayda jitter ("qaltirash").
+        #     Yengil EMA: kadr = (1-a)*joriy + a*oldingi → yuqori-chastotali titrash
+        #     damp bo'ladi, lab harakati saqlanadi. a (RT_LIP_SMOOTH) 0..0.6;
+        #     katta = tinchroq lekin sal laggy. 0 = o'chiq.
+        _ls = max(0.0, min(0.6, float(os.environ.get("RT_LIP_SMOOTH", "0.35"))))
+        if _ls > 0 and len(res_frame_list) > 1:
+            prev = res_frame_list[0].astype(np.float32)
+            for _i in range(1, len(res_frame_list)):
+                cur = res_frame_list[_i].astype(np.float32)
+                prev = _ls * prev + (1.0 - _ls) * cur
+                res_frame_list[_i] = prev.copy()
+            _lap("temporal smooth")
 
         # 3. To'liq kadrga composite (parallel)
         n_total = min(len(res_frame_list), video_num)
@@ -254,7 +595,9 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             ori_frame = _frame_list_cycle[cycle_idx].copy()
             x1, y1, x2, y2 = bbox
             try:
-                rf = cv2.resize(res_frame_list[idx].astype(np.uint8), (x2 - x1, y2 - y1))
+                rf = cv2.resize(res_frame_list[idx].astype(np.uint8), (x2 - x1, y2 - y1),
+                                interpolation=cv2.INTER_LANCZOS4)
+                rf = _sharpen_region(rf, _hd_sharpen)
             except Exception:
                 return None
             mask = _mask_list_cycle[cycle_idx]
@@ -263,6 +606,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
 
         with ThreadPoolExecutor(max_workers=12) as ex:
             out_frames = [f for f in ex.map(_composite_one, range(n_total)) if f is not None]
+        _lap(f"composite ({n_total} kadr)")
 
         # Oxirgi 3 kadrni kesish (audio chetidagi g'alati lab)
         if len(out_frames) > 3:
@@ -282,13 +626,27 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
                 cv2.addWeighted(last_frame, 1.0 - alpha, idle_frame, alpha, 0)
             )
 
+        # 3.5 HD: GFPGAN yuz tiklash (GPU) — 256 yumshoqligini qoplab, 512 tiniqlik.
+        #     Faqat hd=True (offline Studio); xato/vazn yo'q bo'lsa jimgina o'tkaziladi.
+        if hd:
+            try:
+                from app.services import enhance
+                if enhance.available():
+                    with _gpu_slot("enhance"):
+                        # blend 0.6: tiklangan+asl aralashmasi — har-kadr flicker (lab
+                        # qaltirashi)ni kamaytiradi, tiniqlikni saqlab.
+                        out_frames = [enhance.restore_frame(f, blend=0.6) for f in out_frames]
+                    _lap("GFPGAN restore")
+            except Exception as e:  # noqa: BLE001
+                print(f"[LP-MuseTalk GFPGAN o'tkazildi] {e}")
+
         # 4. ffmpeg STDIN orqali mp4
         h, w = out_frames[0].shape[:2]
         proc = subprocess.Popen([
             "ffmpeg", "-y", "-v", "warning",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps),
-            "-i", "-", "-i", wav_path,
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "ultrafast",
+            "-i", "-", *_audio_offset_args(), "-i", wav_path,
+            *_venc_args(fps, hd=hd),
             "-af", "apad", "-c:a", "aac", "-shortest", out_mp4,
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
@@ -300,6 +658,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
             print(f"[LP-MuseTalk ffmpeg ERR] {e}")
             proc.kill()
             return False
+        _lap("ffmpeg encode")
 
         return os.path.exists(out_mp4)
 
@@ -310,13 +669,17 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         return False
 
 
-def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
+def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
+                          start_frame=None, max_dim=None):
     """STREAMING variant: kadrlarni generatsiya paytida fragmented-mp4 bayt
     bo'laklari sifatida yieldlaydi (eski musetalk_infer'ga TEGILMAYDI — additiv).
 
+    start_frame: artefakt siklining boshlanish kadri (KADR-SINXRON HANDOFF).
+      Frontend jonli idle videosi qaysi kadrda turganini yuboradi → javob aynan
+      shu pozadan boshlanadi → idle→javob o'tishida bosh/ko'z SAKRAMAYDI.
+      None bo'lsa tasodifiy (RT_VARY_MOTION) — eski xulq.
+
     ffmpeg fragmented mp4 (frag_keyframe+empty_moov) — brauzer progressive o'ynaydi.
-    Yozuvchi thread kadrlarni stdin'ga yozadi; generator stdout'dan o'qib uzatadi
-    (deadlock yo'q). Kadrlar BATCH bo'yicha parallel composit qilinib, tartibda yoziladi.
     """
     import torch
     import cv2
@@ -327,12 +690,18 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
     from musetalk.utils.blending import get_image_blending
 
     ensure_loaded()
-    art = _get_artifact(avatar_id)
-    latents = art["latents"]
-    coords = art["coords"]
-    mask_coords = art["mask_coords"]
-    frames = art["frames"]
-    masks = art["masks"]
+    art = _get_artifact(avatar_id, max_dim)
+    # Sikl boshlanishi: frontend bergan kadr (handoff) yoki tasodifiy.
+    _n_cycle = len(art["frames"])
+    if start_frame is None:
+        _start = _cycle_start(_n_cycle)
+    else:
+        _start = int(start_frame) % _n_cycle if _n_cycle else 0
+    latents = _rotate(art["latents"], _start)
+    coords = _rotate(art["coords"], _start)
+    mask_coords = _rotate(art["mask_coords"], _start)
+    frames = _rotate(art["frames"], _start)
+    masks = _rotate(art["masks"], _start)
 
     whisper_input_features, librosa_length = _audio_processor.get_audio_feature(
         wav_path, weight_dtype=_weight_dtype
@@ -347,11 +716,11 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
     proc = subprocess.Popen([
         "ffmpeg", "-y", "-v", "error",
         "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
-        "-i", wav_path,
+        *_audio_offset_args(), "-i", wav_path,
         "-map", "0:v", "-map", "1:a",
-        # Sifat: crf 18 + veryfast (ultrafast'dan aniqroq), tezlikka deyarli ta'sir yo'q.
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
-        "-g", str(fps), "-crf", "18", "-c:a", "aac", "-b:a", "128k", "-shortest",
+        # Video kodlovchi (odatda libx264 crf18; o'lchov: stream'da ffmpeg GPU ostida
+        # to'liq yashiringan — bottleneck emas, shuning uchun NVENC kerak emas).
+        *_venc_args(fps), "-c:a", "aac", "-b:a", "128k", "-shortest",
         "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
     ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
@@ -360,41 +729,56 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
         x1, y1, x2, y2 = coords[ci]
         ori = frames[ci].copy()
         try:
-            rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1))
+            rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1),
+                            interpolation=cv2.INTER_LANCZOS4)
+            rf = _sharpen_region(rf, _SHARPEN)
         except Exception:
             return None
         return get_image_blending(ori, rf, [x1, y1, x2, y2], masks[ci], mask_coords[ci])
 
-    # LEAN: GPU thread UNet'ni UZLUKSIZ yuritadi (GPU isib/pipelined qoladi → batch
-    # tezligi), dekodlangan kadrlarni navbatga qo'yadi. Consumer BITTA thread'da
-    # composite (cv2 GIL'ni bo'shatadi) + ffmpeg'ga yozadi. Kam thread → GIL kurashi minimal.
+    # GPU producer (UNet+VAE) → frame_q → BITTA consumer (composite + ffmpeg).
+    # MUHIM (o'lchov): composite'ni ko'p threadga bo'lish GPU-dispatch producer
+    # thread'idan Python GIL'ni o'g'irlab GPU'ni SEKINLASHTIRDI (8 worker → GPU
+    # 1.55s→2.07s). Shu sabab bitta consumer eng tez (batch 16 bilan ~1.81s).
+    # Katta navbat: GPU kadrlarni backpressuresiz to'kib slotini tez bo'shatadi.
     import queue as _queue
-    frame_q: _queue.Queue = _queue.Queue(maxsize=48)
+    frame_q: _queue.Queue = _queue.Queue(maxsize=512)
+
+    _prof = os.environ.get("RT_PROFILE") == "1"
+    _stat = {"gpu": 0.0}
 
     def producer():
-        try:
-            gen = datagen(whisper_chunks, latents, 8)
-            idx = 0
-            with torch.inference_mode():
-                for whisper_batch, latent_batch in gen:
-                    if idx >= video_num:
-                        break
-                    audio_feat = _pe(whisper_batch.to(_device))
-                    lb = latent_batch.to(device=_device, dtype=_unet.model.dtype)
-                    pred = _unet.model(lb, _timesteps, encoder_hidden_states=audio_feat).sample
-                    pred = pred.to(device=_device, dtype=_vae.vae.dtype)
-                    recon = _vae.decode_latents(pred)
-                    for j in range(len(recon)):
+        # GPU slotini FAQAT haqiqiy GPU hisoblash davomida ushlaymiz (multi-user).
+        with _gpu_slot("stream"):
+            try:
+                _g0 = time.time()
+                gen = datagen(whisper_chunks, latents, _BATCH)
+                idx = 0
+                with torch.inference_mode():
+                    for whisper_batch, latent_batch in gen:
                         if idx >= video_num:
                             break
-                        frame_q.put((idx, recon[j]))   # GPU kutmaydi (navbat buferli)
-                        idx += 1
-        except Exception as e:  # noqa: BLE001
-            print(f"[LP-MuseTalk stream producer ERR] {e}")
-        finally:
-            frame_q.put(None)
+                        audio_feat = _pe(whisper_batch.to(_device))
+                        lb = latent_batch.to(device=_device, dtype=_unet.model.dtype)
+                        pred = _unet.model(lb, _timesteps, encoder_hidden_states=audio_feat).sample
+                        pred = pred.to(device=_device, dtype=_vae.vae.dtype)
+                        recon = _vae.decode_latents(pred)
+                        for j in range(len(recon)):
+                            if idx >= video_num:
+                                break
+                            frame_q.put((idx, recon[j]))   # GPU kutmaydi (navbat buferli)
+                            idx += 1
+                if _prof:
+                    torch.cuda.synchronize()
+                    _stat["gpu"] = time.time() - _g0
+            except Exception as e:  # noqa: BLE001
+                print(f"[LP-MuseTalk stream producer ERR] {e}")
+        # slot bo'shadi — endi consumer/ffmpeg/tarmoq GPU'siz davom etadi
+        frame_q.put(None)
 
     def consumer():
+        last_fr = None
+        last_idx = -1
         try:
             while True:
                 item = frame_q.get()
@@ -404,6 +788,19 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
                 fr = _composite(idx, rf)
                 if fr is not None:
                     proc.stdin.write(fr.astype(np.uint8).tobytes())
+                    last_fr = fr
+                    last_idx = idx
+            # OG'IZ YUMSHOQ YOPILISHI: oxirgi nutq kadridan idle (yopiq og'iz)
+            # kadrlariga crossfade — bosh pozasi davom etadi, og'iz tabiiy yopiladi
+            # (keskin "pop" o'rniga). idle→handoff frontend'da silliq ulanadi.
+            if last_fr is not None and len(frames) > 0:
+                n_tail = 7
+                ncyc = len(frames)
+                for k in range(1, n_tail + 1):
+                    idle_fr = frames[(last_idx + k) % ncyc]
+                    alpha = k / (n_tail + 1)
+                    blended = cv2.addWeighted(last_fr, 1.0 - alpha, idle_fr, alpha, 0)
+                    proc.stdin.write(blended.astype(np.uint8).tobytes())
         except Exception as e:  # noqa: BLE001
             print(f"[LP-MuseTalk stream consumer ERR] {e}")
         finally:
@@ -412,6 +809,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
             except Exception:
                 pass
 
+    _w0 = time.time()
     tp = threading.Thread(target=producer, daemon=True)
     tc = threading.Thread(target=consumer, daemon=True)
     tp.start()
@@ -430,3 +828,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None):
         proc.wait()
         tp.join(timeout=5)
         tc.join(timeout=5)
+        if _prof:
+            wall = time.time() - _w0
+            print(f"[PROFILE-STREAM] {video_num} kadr | GPU={_stat['gpu']:.3f}s | "
+                  f"jami devor-soat={wall:.3f}s | consumer+ffmpeg overlap={wall-_stat['gpu']:.3f}s")

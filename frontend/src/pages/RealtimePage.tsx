@@ -48,7 +48,7 @@ export function RealtimePage() {
     setAnswerUrl(null);
     const ws = openRealtimeWS(
       avatar.id,
-      avatar.voice,
+      avatar.voice || "",
       (type, data) => {
         if (type === "listening") setStatus("Tinglanmoqda…");
         else if (type === "transcript") {
@@ -148,6 +148,14 @@ export function RealtimePage() {
     const ctx = new Ctx({ sampleRate: 16000 });
     ctxRef.current = ctx;
     const src = ctx.createMediaStreamSource(stream);
+    // Mikrofon shovqin filtri (brauzer DSP'si ustiga): past gum/rumble (HP 90Hz),
+    // yuqori hiss/shitirlash (LP 7500Hz), kompressor (ovoz sathini tekislash) →
+    // Yandex STT'ga yanada toza signal.
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 90; hp.Q.value = 0.7;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 7500;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -45; comp.knee.value = 25; comp.ratio.value = 4;
+    comp.attack.value = 0.004; comp.release.value = 0.18;
     const proc = ctx.createScriptProcessor(4096, 1, 1);
     procRef.current = proc;
 
@@ -183,7 +191,7 @@ export function RealtimePage() {
       }
       if (ws.readyState === WebSocket.OPEN) ws.send(i16.buffer);
     };
-    src.connect(proc);
+    src.connect(hp); hp.connect(lp); lp.connect(comp); comp.connect(proc);
     proc.connect(ctx.destination);   // ba'zi brauzerlarda onaudioprocess uchun shart
   }
 

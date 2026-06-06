@@ -108,8 +108,11 @@ def _split_text(text: str, max_chars: int = _YX_MAX_CHARS) -> list:
     return [c for c in chunks if c]
 
 
-async def _tts_edge(text: str, tmp_path: str, voice_id: str):
-    await edge_tts.Communicate(text=text, voice=voice_id).save(tmp_path)
+async def _tts_edge(text: str, tmp_path: str, voice_id: str, rate: str = ""):
+    kw = {"text": text, "voice": voice_id}
+    if rate:
+        kw["rate"] = rate          # masalan "+10%" / "-10%" (gapirish tezligi)
+    await edge_tts.Communicate(**kw).save(tmp_path)
 
 
 def _yx_auth_folder():
@@ -208,7 +211,8 @@ def _tts_yandex_v3(text: str, tmp_path: str, voice_id: str, speed: float = 1.0):
 
 
 def _synth_chunk(spec: dict, provider: str, text: str, out_path: str):
-    """Bitta matn bo'lagini bitta audio faylga sintez qiladi (provayderga qarab)."""
+    """Bitta matn bo'lagini bitta audio faylga sintez qiladi (provayderga qarab).
+    tts_streaming (oqimli quvur) shu yordamchini ishlatadi."""
     if provider == "edge":
         asyncio.run(_tts_edge(text, out_path, spec["voice"]))
     elif provider == "yandex":
@@ -224,15 +228,59 @@ def _ext_for(provider: str) -> str:
     return ".mp3" if provider == "edge" else ".ogg"
 
 
-def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE):
+# ── Ovoz namunasi (preview) — editorda har ovozni eshitib tanlash uchun ──
+_PREVIEW_TEXT = {
+    "uz": "Assalomu alaykum! Men sizning virtual yordamchingizman.",
+    "ru": "Здравствуйте! Я ваш виртуальный помощник.",
+    "en": "Hello! I'm your virtual assistant.",
+    "kk": "Сәлеметсіз бе! Мен сіздің виртуалды көмекшіңізмін.",
+}
+
+
+def voice_lang(voice_id: str) -> str:
+    """Ovozning tili (uz/ru/en/kk) — spec 'lang' yoki voice id prefiksidan."""
+    spec = VOICES.get(voice_id) or {}
+    lang = spec.get("lang")
+    if lang:
+        return lang.split("-")[0]
+    v = spec.get("voice", "")
+    if "-" in v:
+        return v.split("-")[0]
+    return "uz"
+
+
+def ensure_preview(voice_id: str) -> str:
+    """Ovoz namunasi wav'ini qaytaradi (keshlangan; yo'q bo'lsa generatsiya qiladi).
+    Har ovoz o'z tilida bir qisqa gap gapiradi."""
+    if voice_id not in VOICES:
+        raise ValueError(f"Noma'lum ovoz: {voice_id}")
+    from app.core.paths import CHECKPOINTS_DIR
+    d = CHECKPOINTS_DIR / "voice_previews"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{voice_id}.wav"
+    if p.exists() and p.stat().st_size > 0:
+        return str(p)
+    txt = _PREVIEW_TEXT.get(voice_lang(voice_id), _PREVIEW_TEXT["uz"])
+    tts(txt, str(p), voice=voice_id)
+    return str(p)
+
+
+def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0):
+    """speed — gapirish tezligi ko'paytuvchisi (1.0 = normal; <1 sekin, >1 tez).
+    pace (slow/medium/fast) shu orqali qo'llanadi. edge: rate%, Yandex: speed param."""
     spec = VOICES.get(voice) or VOICES[DEFAULT_VOICE]
     provider = spec["provider"]
     smooth = spec.get("smooth_af", "")
+    speed = max(0.5, min(2.0, float(speed or 1.0)))
     tmps = []
     if provider == "edge":
         # edge-TTS uzun matnni o'zi eplaydi — bo'lishga hojat yo'q.
         tmp = wav_path.replace(".wav", ".mp3")
-        _synth_chunk(spec, provider, text, tmp)
+        rate = ""
+        if abs(speed - 1.0) > 0.01:
+            pct = round((speed - 1.0) * 100)
+            rate = f"+{pct}%" if pct >= 0 else f"{pct}%"
+        asyncio.run(_tts_edge(text, tmp, spec["voice"], rate))
         tmps = [tmp]
     elif provider in ("yandex", "yandex_v3"):
         # Yandex uzun matnni rad etadi → jumlalarga bo'lamiz. Bo'laklarni KETMA-KET
@@ -241,13 +289,21 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE):
         from concurrent.futures import ThreadPoolExecutor
         chunks = _split_text(text) or [text]
         tmps = [wav_path.replace(".wav", f".p{i}.ogg") for i in range(len(chunks))]
+        yx_speed = max(0.5, min(2.0, spec.get("speed", 1.0) * speed))
+
+        def _synth(i_ch):
+            i, ch = i_ch
+            if provider == "yandex":
+                _tts_yandex(ch, tmps[i], spec["voice"], spec.get("lang", "uz-UZ"),
+                            speed=yx_speed)
+            else:
+                _tts_yandex_v3(ch, tmps[i], spec["voice"], speed=yx_speed)
 
         if len(chunks) == 1:
-            _synth_chunk(spec, provider, chunks[0], tmps[0])
+            _synth((0, chunks[0]))
         else:
             with ThreadPoolExecutor(max_workers=min(6, len(chunks))) as ex:
-                list(ex.map(lambda ic: _synth_chunk(spec, provider, ic[1], tmps[ic[0]]),
-                            list(enumerate(chunks))))
+                list(ex.map(_synth, list(enumerate(chunks))))
     else:
         raise RuntimeError(f"Noma'lum provayder: {provider}")
     _parts_to_wav(tmps, wav_path, extra_af=smooth)

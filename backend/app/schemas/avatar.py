@@ -45,6 +45,8 @@ class AvatarCreate(BaseModel):
     blinkRate: int = Field(4, ge=2, le=8)
     headMotion: float = Field(0.45, ge=0.0, le=1.0)
     extraMargin: int = Field(16, ge=0, le=32)
+    # Build rezolyutsiyasi: 1280 = 720p (tez, real-time), 1920 = 1080p (sifat, Studio).
+    maxDim: Literal[1280, 1920] = 1280
 
     hasPhoto: bool = False
     suggestions: List[str] = Field(default_factory=list)
@@ -88,6 +90,7 @@ class AvatarUpdate(BaseModel):
     blinkRate: Optional[int] = Field(None, ge=2, le=8)
     headMotion: Optional[float] = Field(None, ge=0.0, le=1.0)
     extraMargin: Optional[int] = Field(None, ge=0, le=32)
+    maxDim: Optional[Literal[1280, 1920]] = None
 
     hasPhoto: Optional[bool] = None
     suggestions: Optional[List[str]] = None

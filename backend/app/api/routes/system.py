@@ -23,6 +23,22 @@ def voices():
     }
 
 
+@router.get("/voices/{voice_id}/preview")
+def voice_preview(voice_id: str):
+    """Ovoz namunasi (o'z tilida bir gap) — editorda eshitib tanlash uchun.
+    Keshlangan; birinchi so'rovda generatsiya qilinadi. Public (oddiy namuna)."""
+    if "/" in voice_id or "\\" in voice_id:
+        raise HTTPException(404, "Topilmadi")
+    from app.services import tts as _tts
+    try:
+        p = _tts.ensure_preview(voice_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"Namuna yaratilmadi: {e}")
+    return FileResponse(str(p), media_type="audio/wav", filename=f"{voice_id}.wav")
+
+
 @router.get("/idle.jpg")
 def idle_image():
     if not IDLE_IMAGE.exists():

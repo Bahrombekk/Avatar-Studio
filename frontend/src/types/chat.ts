@@ -4,11 +4,12 @@ export type VoiceProvider = "edge" | "yandex" | "yandex_v3" | string;
 
 export interface Voice {
   id: string;
-  name: string;
-  lang: string;
-  langCode: string;
-  gender: string;
-  tag: string;
+  label?: string;          // /voices runtime maydoni (ko'rsatish uchun)
+  name?: string;
+  lang?: string;
+  langCode?: string;
+  gender?: string;
+  tag?: string;
   provider: VoiceProvider;
 }
 

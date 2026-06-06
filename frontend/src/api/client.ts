@@ -5,6 +5,36 @@ import type { Avatar, AvatarDraft, BuildStatus } from "@/types/avatar";
 import type { Voice, ChatStreamHandler } from "@/types/chat";
 import type { Analytics } from "@/types/analytics";
 
+/** Video Studiya render meta. */
+export interface Render {
+  id: string;
+  title: string;
+  avatar_id: string;
+  avatar_name: string;
+  voice: string;
+  mode: "script" | "gpt";
+  hd: boolean;
+  text: string;
+  prompt?: string;
+  created: string;
+  state: string;
+  size?: number;
+}
+
+/** Tayyor javob (pre-rendered Q&A) meta. */
+export interface Canned {
+  id: string;
+  title: string;
+  avatar_id: string;
+  avatar_name: string;
+  voice: string;
+  mode: "script" | "gpt";
+  questions: string[];
+  text: string;
+  created: string;
+  state: string;
+}
+
 // ── Admin token (localStorage) ──
 const TOKEN_KEY = "admin_token";
 export function getToken(): string {
@@ -131,6 +161,18 @@ export const API = {
     return (await r.json()) as { ok: boolean; state: string; stage: string };
   },
 
+  // Bosh-harakat primitivlari (2-faza) generatsiyani boshlash (fon job).
+  async buildMotion(
+    id: string,
+  ): Promise<{ ok: boolean; state: string; stage: string }> {
+    const r = await fetch(
+      "/api/avatars/" + encodeURIComponent(id) + "/build-motion",
+      { method: "POST", headers: authHeaders() },
+    );
+    if (!r.ok) throw new Error(await errorDetail(r, "harakat qurilmadi"));
+    return (await r.json()) as { ok: boolean; state: string; stage: string };
+  },
+
   // Generatsiya holati (polling).
   async buildStatus(id: string): Promise<BuildStatus> {
     const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/build");
@@ -152,7 +194,106 @@ export const API = {
   async voices(): Promise<Voice[]> {
     const r = await fetch("/voices");
     if (!r.ok) throw new Error("ovozlar yuklanmadi");
-    return (await r.json()) as Voice[];
+    // /voices → {default, voices:[...]} (massiv emas, obyekt). Massivni ajratamiz.
+    const data = (await r.json()) as { voices?: Voice[] } | Voice[];
+    const arr = Array.isArray(data) ? data : data.voices;
+    return Array.isArray(arr) ? arr : [];
+  },
+
+  // ── Video Studiya (offline HD render) ──
+  async studioRender(body: {
+    avatar_id: string; mode: "script" | "gpt"; text?: string; prompt?: string;
+    voice?: string | null; hd?: boolean; title?: string;
+  }): Promise<{ render_id: string }> {
+    const r = await fetch("/api/studio/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "render boshlanmadi"));
+    return (await r.json()) as { render_id: string };
+  },
+
+  async studioRenders(): Promise<Render[]> {
+    const r = await fetch("/api/studio/renders", { headers: authHeaders() });
+    if (!r.ok) throw new Error("kutubxona yuklanmadi");
+    return ((await r.json()) as { renders: Render[] }).renders;
+  },
+
+  async studioRenderStatus(
+    id: string,
+  ): Promise<{ state: string; error?: string; meta?: Render }> {
+    const r = await fetch(
+      `/api/studio/render/${encodeURIComponent(id)}/status`,
+      { headers: authHeaders() },
+    );
+    if (!r.ok) throw new Error("holat olinmadi");
+    return (await r.json()) as { state: string; error?: string; meta?: Render };
+  },
+
+  async studioDeleteRender(id: string): Promise<{ deleted: string }> {
+    const r = await fetch(`/api/studio/render/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!r.ok) throw new Error("o'chirilmadi");
+    return (await r.json()) as { deleted: string };
+  },
+
+  studioVideoUrl(id: string): string {
+    return `/api/studio/render/${encodeURIComponent(id)}/video`;
+  },
+
+  // ── Tayyor javoblar (pre-rendered Q&A) ──
+  async cannedCreate(body: {
+    avatar_id: string; questions: string[]; mode: "script" | "gpt";
+    text?: string; prompt?: string; voice?: string | null; hd?: boolean; title?: string;
+  }): Promise<{ canned_id: string }> {
+    const r = await fetch("/api/canned", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "yaratilmadi"));
+    return (await r.json()) as { canned_id: string };
+  },
+
+  async cannedList(): Promise<Canned[]> {
+    const r = await fetch("/api/canned", { headers: authHeaders() });
+    if (!r.ok) throw new Error("kutubxona yuklanmadi");
+    return ((await r.json()) as { canned: Canned[] }).canned;
+  },
+
+  async cannedStatus(id: string): Promise<{ state: string; error?: string; meta?: Canned }> {
+    const r = await fetch(`/api/canned/${encodeURIComponent(id)}/status`, { headers: authHeaders() });
+    if (!r.ok) throw new Error("holat olinmadi");
+    return (await r.json()) as { state: string; error?: string; meta?: Canned };
+  },
+
+  async cannedUpdateQuestions(id: string, questions: string[]): Promise<void> {
+    const r = await fetch(`/api/canned/${encodeURIComponent(id)}/questions`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ questions }),
+    });
+    if (!r.ok) throw new Error("saqlanmadi");
+  },
+
+  async cannedDelete(id: string): Promise<{ deleted: string }> {
+    const r = await fetch(`/api/canned/${encodeURIComponent(id)}`, {
+      method: "DELETE", headers: authHeaders(),
+    });
+    if (!r.ok) throw new Error("o'chirilmadi");
+    return (await r.json()) as { deleted: string };
+  },
+
+  cannedVideoUrl(id: string): string {
+    return `/api/canned/${encodeURIComponent(id)}/video`;
+  },
+
+  // Ovoz namunasi (preview) — editorda eshitib tanlash uchun. (/voices — /api prefiksiz)
+  voicePreviewUrl(id: string): string {
+    return `/voices/${encodeURIComponent(id)}/preview`;
   },
 
   // Real pipeline: SSE oqimi. onEvent(type, data) chaqiriladi.
