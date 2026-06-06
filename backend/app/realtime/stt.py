@@ -18,9 +18,12 @@ _LANG = {"uz": "uz-UZ", "ru": "ru-RU", "en": "en-US", "kk": "kk-KZ"}
 
 
 def _to_oggopus(raw: bytes) -> bytes:
-    """Istalgan kirish audiosini (webm/ogg/wav) mono OggOpus'ga o'giradi."""
+    """Mikrofon XOM PCM oqimini (s16le, 16kHz, mono — RealtimePage WS orqali yuboradi)
+    mono OggOpus'ga o'giradi. Frontend ScriptProcessor'dan Int16 PCM yuboradi, shuning
+    uchun ffmpeg'ga kirish formatini ANIQ aytamiz (aks holda 'Invalid data' xatosi)."""
     p = subprocess.run(
-        ["ffmpeg", "-y", "-i", "pipe:0", "-ac", "1", "-c:a", "libopus", "-f", "ogg", "pipe:1"],
+        ["ffmpeg", "-y", "-f", "s16le", "-ar", "16000", "-ac", "1", "-i", "pipe:0",
+         "-ac", "1", "-c:a", "libopus", "-f", "ogg", "pipe:1"],
         input=raw, capture_output=True,
     )
     if p.returncode != 0 or not p.stdout:
