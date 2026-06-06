@@ -82,11 +82,10 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None):
     try:
         if _is_portfolio(avatar):
             # DASUTY loyihalar bazasi: bitta loyihaga yo'naltirilgan javob (qwen3:8b),
-            # keyin oddiy TTS. Loyihalar aralashmaydi.
-            res = portfolio.answer(user_text, max_tokens=max_tokens)
-            reply = res["text"]
-            gpt_first["at"] = time.time()
-            tts(reply, wav, voice=use_voice)
+            # endi OQIM bilan — GPT token'lari kelishi bilanoq TTS parallel sintez
+            # qiladi (kechikish GPT+TTS o'rniga ~max(GPT, TTS)). Loyihalar aralashmaydi.
+            pieces = _timed(portfolio.answer_stream(user_text, max_tokens=max_tokens))
+            reply = tts_streaming(pieces, wav, voice=use_voice)
         else:
             pieces = _timed(ask_gpt_stream(user_text, system_prompt=system_prompt,
                                            temperature=temperature, max_tokens=max_tokens,

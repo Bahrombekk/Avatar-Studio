@@ -225,6 +225,57 @@ def answer(question: str, max_tokens: int = 300) -> dict:
     return {"text": text, "project": proj["id"], "matched": True}
 
 
+def answer_stream(question: str, max_tokens: int = 300):
+    """answer()'ning OQIMLI varianti — javob matnini bo'lak-bo'lak yieldlaydi.
+
+    Routing + maxsus holatlar (ro'yxat / mos kelmadi) bitta tayyor bo'lak bo'lib
+    qaytadi; mos loyiha bo'lsa qwen3 javobi OQIM bilan keladi (ask_gpt_stream <think>
+    ni tozalaydi). tts_streaming bu bo'laklarni jumlalarga yig'ib, GPT yozayotganda
+    parallel sintez qiladi → kechikish GPT+TTS o'rniga ~max(GPT, TTS).
+    """
+    projects = _load()
+    if not projects:
+        yield "Loyihalar bazasi yuklanmagan."
+        return
+
+    q = _norm(question)
+    if any(kw in q for kw in ("qanday loyiha", "qaysi loyiha", "loyihalar ro'yxat",
+                              "nechta loyiha", "barcha loyiha", "loyihalaringiz")):
+        names = list_projects()
+        examples = ", ".join(names[:4])
+        yield (f"DASUTY {len(names)} ta loyiha yaratgan, masalan: {examples}. "
+               f"Qaysi biri haqida batafsil bilmoqchisiz?")
+        return
+
+    status, proj = route(question)
+    if status == "none":
+        ex = ", ".join(list_projects()[:4])
+        yield (f"Kechirasiz, bu haqda ma'lumotim yo'q. Men DASUTY loyihalari "
+               f"haqida gapiraman, masalan: {ex}.")
+        return
+
+    sys_prompt = _ANSWER_SYS.format(title=proj["title"], body=proj["full_text"])
+    detail = any(w in q for w in ("batafsil", "to'liq", "to'liqroq", "ko'proq"))
+    cap = min(max_tokens, 180 if detail else 110)
+    # Har chaqiruv uchun YANGI (bo'sh) suhbat tarixi — loyihalararo "oqib ketish"
+    # bo'lmasligi uchun (har javob faqat o'sha loyiha matnidan). Tugagach tozalaymiz.
+    import uuid as _uuid
+    from app.services.gpt import ask_gpt_stream, clear_history
+    hk = "pf_" + _uuid.uuid4().hex[:12]
+    try:
+        for piece in ask_gpt_stream(question, system_prompt=sys_prompt,
+                                    temperature=0.3, max_tokens=cap, history_key=hk):
+            # ask_gpt_stream <think>'ni tozalagan; markdown belgilarini ham olib tashlaymiz.
+            p = piece.replace("*", "").replace("`", "")
+            if p:
+                yield p
+    finally:
+        try:
+            clear_history(hk)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _clean_for_voice(text: str) -> str:
     """<think> bloklari + markdown belgilarini olib tashlaydi (TTS toza o'qisin)."""
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL | re.IGNORECASE)
