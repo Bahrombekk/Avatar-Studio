@@ -14,6 +14,7 @@ Artefakt (sikl = FAQAT oldinga, palindromsiz; harakat davriy/enveloped → silli
 """
 import glob
 import json
+import logging
 import os
 import pickle
 import shutil
@@ -25,6 +26,8 @@ from app.core.paths import (
     avatar_motion_artifact, avatar_motion_clip,
 )
 from app.services import avatar_store, musetalk
+
+log = logging.getLogger(__name__)
 
 PREP_TIMEOUT_SEC = 1800   # 30 daqiqa
 
@@ -146,7 +149,7 @@ def preprocess_avatar(avatar_id: str) -> str:
                                meta_extra={"avatar_id": avatar_id, "kind": "idle"})
     musetalk.invalidate(avatar_id)
     avatar_store.set_ready(avatar_id, True)
-    print(f"PREPROCESS-OK ({n} kadr)")
+    log.info("PREPROCESS-OK (%d kadr)", n, extra={"event": "preprocess_ok", "frames": n})
     return str(art)
 
 
@@ -165,7 +168,8 @@ def preprocess_motion(avatar_id: str, mtype: str) -> str:
     n = _video_to_artifact_dir(str(clip), dest, extra_margin,
                                meta_extra={"avatar_id": avatar_id, "kind": "motion",
                                            "motion_type": mtype})
-    print(f"MOTION-PREP-OK {mtype} ({n} kadr)")
+    log.info("MOTION-PREP-OK %s (%d kadr)", mtype, n,
+             extra={"event": "motion_prep_ok", "motion": mtype, "frames": n})
     return str(dest)
 
 
@@ -176,13 +180,14 @@ def preprocess_motion_all(avatar_id: str) -> list:
     done = []
     for mt in MOTION_TYPES:
         if not avatar_motion_clip(avatar_id, mt).is_file():
-            print(f"[motion] {mt} klip yo'q — o'tkazildi")
+            log.info("motion %s klip yo'q — o'tkazildi", mt)
             continue
         preprocess_motion(avatar_id, mt)
         done.append(mt)
     if "neutral" not in done:
         raise RuntimeError("neutral primitiv preprocess qilinmadi (klip yo'qmi?)")
-    print(f"ALL-MOTION-PREP-OK ({len(done)}: {','.join(done)})")
+    log.info("ALL-MOTION-PREP-OK (%d: %s)", len(done), ",".join(done),
+             extra={"event": "all_motion_prep_ok", "count": len(done)})
     return done
 
 
@@ -227,6 +232,9 @@ def preprocess_avatar_subprocess(avatar_id: str) -> str:
 
 
 if __name__ == "__main__":
+    # Subprocess sifatida ishlaganda loglar ko'rinsin (ota-jarayon stdout/stderr o'qiydi).
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                        format="%(levelname)s %(name)s: %(message)s")
     # python -m app.services.preprocess <avatar_id> [--motion <type>]
     if len(sys.argv) < 2:
         print("Foydalanish: python -m app.services.preprocess <avatar_id> [--motion <type>]",

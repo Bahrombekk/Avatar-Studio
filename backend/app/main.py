@@ -94,7 +94,9 @@ def create_app() -> FastAPI:
     from app.core.middleware import RequestIDMiddleware
 
     settings = get_settings()
-    configure_logging(settings.LOG_LEVEL, settings.LOG_FORMAT)
+    configure_logging(settings.LOG_LEVEL, settings.LOG_FORMAT,
+                      log_file=settings.LOG_FILE, max_mb=settings.LOG_MAX_MB,
+                      backups=settings.LOG_BACKUPS)
 
     app = FastAPI(title="Madina Avatar (LP-MuseTalk)", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)

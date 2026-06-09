@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     # ── Server / observability ──
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"          # "json" | "text"
+    LOG_FILE: str = ""                # bo'sh → faqat stdout; yo'l berilsa rotating fayl ham
+    LOG_MAX_MB: int = Field(10, ge=1)    # bitta log fayl maksimal hajmi (MB)
+    LOG_BACKUPS: int = Field(5, ge=0)    # saqlanadigan rotatsiya fayllari soni
+    LOG_SLOW_MS: int = Field(0, ge=0)    # >0 → shu ms'dan sekin so'rovlar WARNING bo'ladi
     AVATAR_STUDIO_SKIP_WARMUP: bool = False
     DATA_DIR: str = ""                # bo'sh → paths.py standartini ishlatadi
 

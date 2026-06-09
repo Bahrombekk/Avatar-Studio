@@ -21,6 +21,8 @@ from app.core.paths import (
     avatar_artifact_paths,
 )
 
+log = logging.getLogger(__name__)
+
 # Og'ir importlarni MODUL yuklanishida (asosiy thread) bajaramiz. diffusers
 # lazy-import tizimi bir nechta thread'dan chaqirilsa "object of type 'int' has
 # no len()" xatosi beradi — warmup fon thread'i shunga uchragan edi.
@@ -37,9 +39,7 @@ try:
     import torchvision  # noqa: F401
     from musetalk.utils.utils import datagen, load_all_model  # noqa: F401
 except Exception as _imp_err:
-    print(f"[LP-MuseTalk] eager import ogohlantirish: {_imp_err}")
-
-log = logging.getLogger(__name__)
+    log.warning("eager import ogohlantirish: %s", _imp_err)
 
 
 def _is_cuda_oom(exc) -> bool:
@@ -62,8 +62,35 @@ def _reclaim_vram() -> None:
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
             log.warning("CUDA kesh bo'shatildi (OOM tiklash)")
+            log_vram("OOM-tiklashdan keyin", logging.WARNING)
     except Exception as e:  # noqa: BLE001
         log.warning("VRAM bo'shatish xato: %s", e)
+
+
+def vram_stats() -> dict:
+    """Joriy GPU xotira holati (MB). GPU yo'q bo'lsa bo'sh dict. Diagnostika/log uchun."""
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return {}
+        free, total = torch.cuda.mem_get_info()
+        return {
+            "vram_alloc_mb": round(torch.cuda.memory_allocated() / 1048576, 1),
+            "vram_reserved_mb": round(torch.cuda.memory_reserved() / 1048576, 1),
+            "vram_free_mb": round(free / 1048576, 1),
+            "vram_total_mb": round(total / 1048576, 1),
+        }
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def log_vram(tag: str = "", level: int = logging.DEBUG) -> None:
+    """VRAM holatini strukturali loglaydi (tag bilan). OOM tahlili uchun bebaho.
+    Standart DEBUG — RT_PROFILE yoki LOG_LEVEL=DEBUG da ko'rinadi."""
+    stats = vram_stats()
+    if stats:
+        log.log(level, "VRAM %s: alloc=%.0fMB free=%.0fMB", tag,
+                stats["vram_alloc_mb"], stats["vram_free_mb"], extra=stats)
 
 
 # ── Global model holatlari (avatardan mustaqil) ──
@@ -146,7 +173,8 @@ def _gpu_slot(tag: str = ""):
     _gpu_sem.acquire()
     waited = time.time() - t0
     if waited > 0.05:
-        print(f"[LP-MuseTalk] GPU navbatda kutildi {waited:.2f}s ({tag})")
+        log.info("GPU navbatda kutildi %.2fs (%s)", waited, tag,
+                 extra={"gpu_wait_s": round(waited, 2), "tag": tag})
     try:
         yield
     finally:
@@ -178,7 +206,7 @@ def _encoder_name() -> str:
         _ENCODER = "h264_nvenc" if "h264_nvenc" in out else "libx264"
     except Exception:  # noqa: BLE001
         _ENCODER = "libx264"
-    print(f"[LP-MuseTalk] Video kodlovchi: {_ENCODER}")
+    log.info("Video kodlovchi: %s", _ENCODER, extra={"encoder": _ENCODER})
     return _ENCODER
 
 
@@ -216,7 +244,7 @@ def _load():
     from musetalk.utils.audio_processor import AudioProcessor
 
     t0 = time.time()
-    print("[LP-MuseTalk] Modellar yuklanmoqda...")
+    log.info("Modellar yuklanmoqda...")
 
     # MuseTalk nisbiy yo'llardan foydalanadi (models/sd-vae, face-parse, ...)
     os.chdir(str(MT_DIR))
@@ -252,12 +280,14 @@ def _load():
         try:
             _unet.model = torch.compile(_unet.model, dynamic=True)
             _vae.vae = torch.compile(_vae.vae, dynamic=True)
-            print("[LP-MuseTalk] torch.compile yoqildi (UNet + VAE)")
+            log.info("torch.compile yoqildi (UNet + VAE)")
         except Exception as e:  # noqa: BLE001
-            print(f"[LP-MuseTalk] torch.compile o'tkazib yuborildi: {e}")
+            log.warning("torch.compile o'tkazib yuborildi: %s", e)
 
     _loaded = True
-    print(f"[LP-MuseTalk] Asosiy modellar tayyor: {time.time()-t0:.1f}s")
+    log.info("Asosiy modellar tayyor: %.1fs", time.time() - t0,
+             extra={"event": "models_loaded", "dur_s": round(time.time() - t0, 1)})
+    log_vram("modellar yuklandi", logging.INFO)
 
 
 def ensure_loaded():
@@ -377,7 +407,8 @@ def _get_artifact(avatar_id, max_dim=None):
         native = _load_artifact_from_paths(paths)
         with _avatars_lock:
             _avatars[key] = native
-        print(f"[LP-MuseTalk] Artefakt '{key}': {len(native['frames'])} kadr ({time.time()-t1:.1f}s)")
+        log.info("Artefakt '%s': %d kadr (%.1fs)", key, len(native['frames']), time.time() - t1,
+                 extra={"avatar": key, "frames": len(native['frames'])})
     if not max_dim:
         return native
     ratio = _target_ratio(native, max_dim)
@@ -392,8 +423,9 @@ def _get_artifact(avatar_id, max_dim=None):
     scaled = _downscale_artifact(native, ratio)
     with _avatars_lock:
         _avatars[skey] = scaled
-    print(f"[LP-MuseTalk] Artefakt '{key}' @{max_dim} ({ratio:.3f}x): "
-          f"{len(scaled['frames'])} kadr ({time.time()-t2:.1f}s)")
+    log.info("Artefakt '%s' @%s (%.3fx): %d kadr (%.1fs)", key, max_dim, ratio,
+             len(scaled['frames']), time.time() - t2,
+             extra={"avatar": key, "max_dim": max_dim, "ratio": round(ratio, 3)})
     return scaled
 
 
@@ -497,7 +529,7 @@ def warmup():
     ensure_loaded()
     key, _ = _resolve_artifact(None)
     if key is None:
-        print("[LP-MuseTalk] Warmup o'tkazib yuborildi — hech qanday artefakt yo'q")
+        log.info("Warmup o'tkazib yuborildi — hech qanday artefakt yo'q")
         return
     import tempfile
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -514,7 +546,7 @@ def warmup():
             os.remove(p)
         except Exception:
             pass
-    print(f"[LP-MuseTalk] Warmup: {time.time()-t:.1f}s")
+    log.info("Warmup: %.1fs", time.time() - t, extra={"event": "warmup_done"})
 
 
 def preload_artifact(avatar_id: str, max_dim=None) -> bool:
@@ -529,7 +561,7 @@ def preload_artifact(avatar_id: str, max_dim=None) -> bool:
         _get_artifact(avatar_id, max_dim)
         return True
     except Exception as e:  # noqa: BLE001
-        print(f"[LP-MuseTalk] preload '{avatar_id}' ogohlantirish: {e}")
+        log.warning("preload '%s' ogohlantirish: %s", avatar_id, e)
         return False
 
 
@@ -558,7 +590,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         if _prof:
             import torch as _t
             _t.cuda.synchronize()
-            print(f"[PROFILE] {name}: {time.time()-_pt:.3f}s")
+            log.debug("[PROFILE] %s: %.3fs", name, time.time() - _pt)
             _pt = time.time()
 
     try:
@@ -673,7 +705,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
                         out_frames = [enhance.restore_frame(f, blend=0.6) for f in out_frames]
                     _lap("GFPGAN restore")
             except Exception as e:  # noqa: BLE001
-                print(f"[LP-MuseTalk GFPGAN o'tkazildi] {e}")
+                log.warning("GFPGAN o'tkazildi: %s", e)
 
         # 4. ffmpeg STDIN orqali mp4
         h, w = out_frames[0].shape[:2]
@@ -858,7 +890,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
                     blended = cv2.addWeighted(last_fr, 1.0 - alpha, idle_fr, alpha, 0)
                     proc.stdin.write(blended.astype(np.uint8).tobytes())
         except Exception as e:  # noqa: BLE001
-            print(f"[LP-MuseTalk stream consumer ERR] {e}")
+            log.error("stream consumer xato: %s", e, exc_info=True)
         finally:
             try:
                 proc.stdin.close()
@@ -886,8 +918,8 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
         tc.join(timeout=5)
         if _prof:
             wall = time.time() - _w0
-            print(f"[PROFILE-STREAM] {video_num} kadr | GPU={_stat['gpu']:.3f}s | "
-                  f"jami devor-soat={wall:.3f}s | consumer+ffmpeg overlap={wall-_stat['gpu']:.3f}s")
+            log.debug("[PROFILE-STREAM] %d kadr | GPU=%.3fs | jami=%.3fs | overlap=%.3fs",
+                      video_num, _stat['gpu'], wall, wall - _stat['gpu'])
 
 
 def _wav_pcm16(wav_path: str) -> bytes:
@@ -974,7 +1006,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                     break
                 _os.write(audio_w, b)
         except Exception as e:  # noqa: BLE001
-            print(f"[LP-MuseTalk streamq audio ERR] {e}")
+            log.error("streamq audio xato: %s", e)
         finally:
             try:
                 _os.close(audio_w)
@@ -1051,7 +1083,11 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                     bl = cv2.addWeighted(last_fr, 1.0 - alpha, idle_fr, alpha, 0)
                     proc.stdin.write(bl.astype(np.uint8).tobytes())
         except Exception as e:  # noqa: BLE001
-            print(f"[LP-MuseTalk streamq producer ERR] {e}")
+            if _is_cuda_oom(e):
+                _reclaim_vram()
+                log.error("streamq GPU xotira yetishmadi (OOM): %s", e)
+            else:
+                log.error("streamq producer xato: %s", e, exc_info=True)
         finally:
             audio_bq.put(None)          # audio yozuvchi → audio_w'ni yopadi (EOF)
             try:

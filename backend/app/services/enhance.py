@@ -9,11 +9,13 @@ To'siqlar hal qilingan:
 GFPGANer LAZY yuklanadi (birinchi HD render'da). Har qanday xatoda kadr O'ZGARMAYDI
 (render to'xtamaydi). RT_NO_GFPGAN=1 bilan butunlay o'chiriladi.
 """
+import logging
 import os
 import sys
 import threading
 import types
 
+log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _restorer = None
 _disabled = os.environ.get("RT_NO_GFPGAN") == "1"
@@ -50,14 +52,14 @@ def _get_restorer():
             from gfpgan import GFPGANer
             wp = _gfpgan_weight()
             if not wp.is_file():
-                print(f"[enhance] GFPGAN vazni yo'q: {wp} — o'chirildi")
+                log.warning("GFPGAN vazni yo'q: %s — o'chirildi", wp)
                 _disabled = True
                 return None
             _restorer = GFPGANer(model_path=str(wp), upscale=1, arch="clean",
                                  channel_multiplier=2, bg_upsampler=None)
-            print("[enhance] GFPGAN yuklandi (GPU yuz tiklash faol)")
+            log.info("GFPGAN yuklandi (GPU yuz tiklash faol)")
         except Exception as e:  # noqa: BLE001
-            print(f"[enhance] GFPGAN yuklab bo'lmadi → o'chirildi: {e}")
+            log.warning("GFPGAN yuklab bo'lmadi → o'chirildi: %s", e)
             _disabled = True
             _restorer = None
     return _restorer
@@ -82,5 +84,5 @@ def restore_frame(bgr, blend: float = 0.7):
             out = cv2.addWeighted(out, blend, bgr, 1.0 - blend, 0)
         return out
     except Exception as e:  # noqa: BLE001
-        print(f"[enhance] restore xato (kadr o'tkazildi): {e}")
+        log.warning("restore xato (kadr o'tkazildi): %s", e)
         return bgr

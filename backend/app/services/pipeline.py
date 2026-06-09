@@ -9,6 +9,7 @@ import os
 import time
 import uuid
 
+from app.core.logging import log_context
 from app.core.paths import TEMP_DIR, VID_OUT_DIR
 from app.services.cache import get_cache, is_repeat_request
 from app.services.gpt import ask_gpt, build_system_prompt, SYSTEM_PROMPT
@@ -78,48 +79,59 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
                 "cached": True, "cache_id": hit["id"]}
 
     sid = str(uuid.uuid4())[:8]
-    system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
+    # log_context: shu blok ichidagi HAR log avatar_id+session_id bilan chiqadi
+    # (gpt/tts/musetalk ichki loglari ham — qo'lda uzatmasdan).
+    with log_context(avatar_id=hist_key or "-", session_id=sid):
+        system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
 
-    t1 = time.time()
-    reply = ask_gpt(user_message, system_prompt=system_prompt,
-                    temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
-    t_gpt = round(time.time() - t1, 2)
-    log.info("[gpt] %ss → %s", t_gpt, reply[:60])
+        t1 = time.time()
+        reply = ask_gpt(user_message, system_prompt=system_prompt,
+                        temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
+        t_gpt = round(time.time() - t1, 2)
+        log.info("[gpt] %ss → %s", t_gpt, reply[:60], extra={"stage": "gpt", "dur_s": t_gpt})
 
-    t2 = time.time()
-    wav_path = str(TEMP_DIR / f"{sid}.wav")
-    try:
-        tts(reply, wav_path, voice=voice)
-    except Exception as e:
-        log.error("[tts] %s: %s", voice, e)
-        return {"error": f"Ovoz ({voice}) xatosi: {e}"}
-    t_tts = round(time.time() - t2, 2)
-    log.info("[tts] %ss (%s)", t_tts, voice)
+        t2 = time.time()
+        wav_path = str(TEMP_DIR / f"{sid}.wav")
+        try:
+            tts(reply, wav_path, voice=voice)
+        except Exception as e:
+            log.error("[tts] %s: %s", voice, e, extra={"stage": "tts", "voice": voice})
+            return {"error": f"Ovoz ({voice}) xatosi: {e}"}
+        t_tts = round(time.time() - t2, 2)
+        log.info("[tts] %ss (%s)", t_tts, voice,
+                 extra={"stage": "tts", "dur_s": t_tts, "voice": voice})
 
-    t3 = time.time()
-    linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
-    ok = musetalk_infer(wav_path, linux_mp4, fps=fps, avatar_id=hist_key,
-                        max_dim=use_max_dim(avatar))
-    if os.path.exists(wav_path):
-        os.remove(wav_path)
-    t_mt = round(time.time() - t3, 2)
-    log.info("[musetalk] %ss", t_mt)
+        t3 = time.time()
+        linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
+        ok = musetalk_infer(wav_path, linux_mp4, fps=fps, avatar_id=hist_key,
+                            max_dim=use_max_dim(avatar))
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+        t_mt = round(time.time() - t3, 2)
+        log.info("[musetalk] %ss", t_mt, extra={"stage": "musetalk", "dur_s": t_mt})
 
-    if not ok:
-        return {"error": "MuseTalk xato"}
+        if not ok:
+            log.error("chat muvaffaqiyatsiz", extra={"stage": "musetalk", "ok": False})
+            return {"error": "MuseTalk xato"}
 
-    t_total = round(time.time() - t0, 2)
-    log.info("[pipeline] jami %ss", t_total)
+        t_total = round(time.time() - t0, 2)
 
-    # Video keshga KO'CHIRILADI (linux_mp4 endi mavjud bo'lmaydi).
-    entry = cache.add(query=ckey, response=reply,
-                      video_src_path=linux_mp4, gen_time=t_total)
-    if not entry:
-        return {"error": "Video saqlashda xato"}
+        # Video keshga KO'CHIRILADI (linux_mp4 endi mavjud bo'lmaydi).
+        entry = cache.add(query=ckey, response=reply,
+                          video_src_path=linux_mp4, gen_time=t_total)
+        if not entry:
+            log.error("video saqlash muvaffaqiyatsiz", extra={"stage": "cache"})
+            return {"error": "Video saqlashda xato"}
 
-    return {"text": reply, "video": entry["video"],
-            "timing": {"gpt": t_gpt, "tts": t_tts, "wav2lip": t_mt, "total": t_total},
-            "cached": False}
+        # Bitta strukturali yakuniy log — har chat uchun to'liq o'lchovlar (analitika/debug).
+        log.info("chat tayyor: jami %ss", t_total,
+                 extra={"event": "chat_done", "cached": False, "voice": voice,
+                        "gpt_s": t_gpt, "tts_s": t_tts, "video_s": t_mt, "total_s": t_total,
+                        "reply_len": len(reply)})
+
+        return {"text": reply, "video": entry["video"],
+                "timing": {"gpt": t_gpt, "tts": t_tts, "wav2lip": t_mt, "total": t_total},
+                "cached": False}
 
 
 def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = None):
@@ -152,47 +164,57 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
         return
 
     sid = str(uuid.uuid4())[:8]
-    system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
+    with log_context(avatar_id=hist_key or "-", session_id=sid):
+        system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
 
-    t1 = time.time()
-    reply = ask_gpt(user_message, system_prompt=system_prompt,
-                    temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
-    t_gpt = round(time.time() - t1, 2)
-    yield {"type": "text", "text": reply, "gpt_time": t_gpt, "sid": sid}
+        t1 = time.time()
+        reply = ask_gpt(user_message, system_prompt=system_prompt,
+                        temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
+        t_gpt = round(time.time() - t1, 2)
+        log.info("[gpt] %ss → %s", t_gpt, reply[:60], extra={"stage": "gpt", "dur_s": t_gpt})
+        yield {"type": "text", "text": reply, "gpt_time": t_gpt, "sid": sid}
 
-    t2 = time.time()
-    wav_full = str(TEMP_DIR / f"{sid}.wav")
-    try:
-        tts(reply, wav_full, voice=voice)
-    except Exception as e:
-        log.error("[tts] %s: %s", voice, e)
-        yield {"type": "error", "message": f"Ovoz ({voice}) xatosi: {e}"}
-        return
-    t_tts = round(time.time() - t2, 2)
-    yield {"type": "tts_done", "tts_time": t_tts}
+        t2 = time.time()
+        wav_full = str(TEMP_DIR / f"{sid}.wav")
+        try:
+            tts(reply, wav_full, voice=voice)
+        except Exception as e:
+            log.error("[tts] %s: %s", voice, e, extra={"stage": "tts", "voice": voice})
+            yield {"type": "error", "message": f"Ovoz ({voice}) xatosi: {e}"}
+            return
+        t_tts = round(time.time() - t2, 2)
+        log.info("[tts] %ss (%s)", t_tts, voice,
+                 extra={"stage": "tts", "dur_s": t_tts, "voice": voice})
+        yield {"type": "tts_done", "tts_time": t_tts}
 
-    t3 = time.time()
-    linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
-    ok = musetalk_infer(wav_full, linux_mp4, fps=fps, avatar_id=hist_key,
-                        max_dim=use_max_dim(avatar))
-    try:
-        os.remove(wav_full)
-    except Exception:
-        pass
+        t3 = time.time()
+        linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
+        ok = musetalk_infer(wav_full, linux_mp4, fps=fps, avatar_id=hist_key,
+                            max_dim=use_max_dim(avatar))
+        try:
+            os.remove(wav_full)
+        except Exception:
+            pass
 
-    if not ok:
-        yield {"type": "error", "message": "MuseTalk xato"}
-        return
+        if not ok:
+            log.error("chat muvaffaqiyatsiz", extra={"stage": "musetalk", "ok": False})
+            yield {"type": "error", "message": "MuseTalk xato"}
+            return
 
-    total = round(time.time() - t0, 2)
-    t_mt = round(time.time() - t3, 2)
+        total = round(time.time() - t0, 2)
+        t_mt = round(time.time() - t3, 2)
 
-    entry = cache.add(query=ckey, response=reply,
-                      video_src_path=linux_mp4, gen_time=total)
-    if not entry:
-        yield {"type": "error", "message": "Video saqlashda xato"}
-        return
+        entry = cache.add(query=ckey, response=reply,
+                          video_src_path=linux_mp4, gen_time=total)
+        if not entry:
+            log.error("video saqlash muvaffaqiyatsiz", extra={"stage": "cache"})
+            yield {"type": "error", "message": "Video saqlashda xato"}
+            return
 
-    yield {"type": "video", "video": entry["video"],
-           "timing": {"gpt": t_gpt, "tts": t_tts, "wav2lip": t_mt, "total": total}}
-    yield {"type": "done"}
+        log.info("chat tayyor: jami %ss", total,
+                 extra={"event": "chat_done", "cached": False, "voice": voice,
+                        "gpt_s": t_gpt, "tts_s": t_tts, "video_s": t_mt, "total_s": total,
+                        "reply_len": len(reply)})
+        yield {"type": "video", "video": entry["video"],
+               "timing": {"gpt": t_gpt, "tts": t_tts, "wav2lip": t_mt, "total": total}}
+        yield {"type": "done"}

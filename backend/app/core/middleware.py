@@ -56,6 +56,15 @@ class _Metrics:
 metrics = _Metrics()
 
 
+def _slow_ms() -> int:
+    """Sekin-so'rov chegarasi (ms). 0 → o'chiq. config'dan o'qiladi."""
+    try:
+        from app.core.config import get_settings
+        return int(get_settings().LOG_SLOW_MS)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
@@ -70,12 +79,20 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             dur_ms = (time.time() - t0) * 1000.0
             metrics.record(status, dur_ms)
+            path = request.url.path
             # /videos, /assets kabi statik/oqim so'rovlari shovqin qilmasin —
             # faqat API yo'llari va xatolarni access-log qilamiz.
-            path = request.url.path
             noisy = path.startswith(("/assets", "/videos")) or path in ("/idle.jpg",)
-            if not noisy or status >= 400:
-                log.info("%s %s -> %d", request.method, path, status,
-                         extra={"method": request.method, "path": path,
-                                "status": status, "dur_ms": round(dur_ms, 1)})
+            slow_ms = _slow_ms()
+            is_slow = slow_ms > 0 and dur_ms >= slow_ms
+            if not noisy or status >= 400 or is_slow:
+                extra = {"method": request.method, "path": path,
+                         "status": status, "dur_ms": round(dur_ms, 1)}
+                if is_slow:
+                    # Sekin so'rov → WARNING + slow bayrog'i (agregatorda oson filtrlanadi).
+                    extra["slow"] = True
+                    log.warning("SEKIN %s %s -> %d (%.0fms ≥ %dms)",
+                                request.method, path, status, dur_ms, slow_ms, extra=extra)
+                else:
+                    log.info("%s %s -> %d", request.method, path, status, extra=extra)
             request_id_ctx.reset(token)

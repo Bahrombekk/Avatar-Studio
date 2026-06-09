@@ -9,6 +9,7 @@ Saqlash:
   data/renders/<id>.mp4        → tayyor video
 """
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -20,6 +21,8 @@ import wave
 from app.core.paths import RENDERS_DIR, RENDERS_INDEX, render_file, TEMP_DIR
 from app.services import avatar_store, musetalk
 from app.services.gpt import analyze_script, ask_gpt, build_system_prompt
+
+log = logging.getLogger(__name__)
 from app.services.tts import tts, VOICES, DEFAULT_VOICE
 
 _lock = threading.Lock()
@@ -138,7 +141,7 @@ def _synth_segments(segments: list, voice: str, base_wav: str) -> bool:
                        capture_output=True, timeout=120)
         return os.path.exists(base_wav) and os.path.getsize(base_wav) > 0
     except Exception as e:  # noqa: BLE001
-        print(f"[render segments TTS] {e}")
+        log.warning("render segments TTS xato: %s", e)
         return False
     finally:
         for p in seg_files:
@@ -204,7 +207,7 @@ def _synth_segments_timed(segments: list, voice: str, base_wav: str, fps: int):
         ok = os.path.exists(base_wav) and os.path.getsize(base_wav) > 0
         return ok, seg_frames
     except Exception as e:  # noqa: BLE001
-        print(f"[render segments-timed] {e}")
+        log.warning("render segments-timed xato: %s", e)
         return False, []
     finally:
         for p in seg_files:
@@ -375,7 +378,7 @@ def _run(rid, avatar, voice, mode, text, prompt, hd, fps, meta):
                 meta["motion_units"] = [[u[0], int(u[1])] for u in units]
                 _JOBS[rid]["meta"] = meta
             except Exception as e:  # noqa: BLE001
-                print(f"[render {rid}] motion assemble xato → oddiy idle: {e}")
+                log.warning("render %s: motion assemble xato → oddiy idle: %s", rid, e)
                 art = None
         ok = musetalk.musetalk_infer(src_wav, str(out), fps=fps, avatar_id=avatar_id,
                                      hd=hd, artifact=art,
@@ -394,7 +397,7 @@ def _run(rid, avatar, voice, mode, text, prompt, hd, fps, meta):
     except Exception as e:  # noqa: BLE001
         meta["state"] = "error"
         _JOBS[rid] = {"state": "error", "error": str(e), "meta": meta}
-        print(f"[render {rid}] XATO: {e}")
+        log.error("render %s XATO: %s", rid, e, exc_info=True)
     finally:
         for p in (wav, wav_pad):
             try:
