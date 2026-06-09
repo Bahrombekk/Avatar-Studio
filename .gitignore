@@ -41,6 +41,9 @@ envs/avatar/
 envs/*.tar
 envs/*.tar.gz
 
+# ── NVENC'li ffmpeg binar (~80MB — qayta yuklanadi: backend/scripts/setup_nvenc.sh) ──
+envs/ffmpeg-nvenc/
+
 # ── insightface buffalo_l onnx (166 MB w600k — GitHub limitidan oshadi) ──
 backend/checkpoints/
 

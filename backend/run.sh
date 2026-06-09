@@ -33,7 +33,13 @@ fi
 export LD_LIBRARY_PATH="$ENV_DIR/lib:${LD_LIBRARY_PATH:-}"
 
 # ── ffmpeg (kod oddiy "ffmpeg" deb chaqiradi) — env bin PATH boshiga ──
-export PATH="$ENV_DIR/bin:${PATH:-}"
+# NVENC'li ffmpeg (envs/ffmpeg-nvenc/) mavjud bo'lsa, uni BIRINCHI qo'yamiz —
+# GPU enkod (h264_nvenc) avtomatik tanlanadi (libx264'dan ~5x tez, ayniqsa HD render).
+if [ -x "$ROOT/envs/ffmpeg-nvenc/ffmpeg" ]; then
+    export PATH="$ROOT/envs/ffmpeg-nvenc:$ENV_DIR/bin:${PATH:-}"
+else
+    export PATH="$ENV_DIR/bin:${PATH:-}"
+fi
 
 # ── .env dan OPENAI_API_KEY (config.py ham o'qiydi; bo'lmasa boot uchun dummy) ──
 ENV_FILE="$BASE/.env"
