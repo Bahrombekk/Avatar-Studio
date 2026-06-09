@@ -33,16 +33,24 @@ def _augment_prompt(system_prompt: str, avatar_id, user_message: str) -> str:
     """Bilim bazasidan (RAG) mos bo'laklarni topib, system prompt'ga qo'shadi.
 
     Xato/bo'sh bo'lsa o'zgarmagan system_prompt qaytadi (degradatsiya)."""
-    if not avatar_id:
-        return system_prompt
+    # RAG — bilim bazasi (avatarga bog'liq).
+    if avatar_id:
+        try:
+            from app.services import knowledge
+            block = knowledge.build_context_block(knowledge.retrieve(avatar_id, user_message))
+            if block:
+                system_prompt = system_prompt + "\n\n" + block
+        except Exception as e:  # noqa: BLE001
+            log.warning("[rag] augment xato: %s", e)
+    # Jonli temir yo'l (savol-bog'liq, eticket.railway.uz).
     try:
-        from app.services import knowledge
-        hits = knowledge.retrieve(avatar_id, user_message)
-        block = knowledge.build_context_block(hits)
-        return system_prompt + "\n\n" + block if block else system_prompt
+        from app.services import railway
+        rail = railway.railway_context(user_message)
+        if rail:
+            system_prompt = system_prompt + "\n\n" + rail
     except Exception as e:  # noqa: BLE001
-        log.warning("[rag] augment xato: %s", e)
-        return system_prompt
+        log.warning("[railway] augment xato: %s", e)
+    return system_prompt
 
 
 def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = None) -> dict:

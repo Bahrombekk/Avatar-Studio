@@ -72,6 +72,12 @@ async def lifespan(app: FastAPI):
                         preload_artifact(av["id"], musetalk.use_max_dim(av))
             except Exception as e:
                 log.warning("artefakt preload xato: %s", e)
+            # Jonli temir yo'l brauzer sessiyasini oldindan ochamiz (1-savol tez bo'lsin).
+            try:
+                from app.services import railway
+                railway.warmup()
+            except Exception as e:
+                log.warning("railway warmup xato: %s", e)
         except Exception as e:
             log.warning("warmup xato: %s", e)
 

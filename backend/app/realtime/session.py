@@ -80,6 +80,16 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
         except Exception as e:  # noqa: BLE001
             log.warning("[rag] augment xato: %s", e)
 
+    # JONLI TEMIR YO'L — savol poyezd/chipta haqida bo'lsa, eticket.railway.uz'dan
+    # real narx/jadval/turlarni olib system prompt'ga qo'shamiz.
+    try:
+        from app.services import railway
+        _rail = railway.railway_context(user_text, (avatar or {}).get("language", "uz"))
+        if _rail:
+            system_prompt = system_prompt + "\n\n" + _rail
+    except Exception as e:  # noqa: BLE001
+        log.warning("[railway] augment xato: %s", e)
+
     t = time.time()
     parts = []
     ttft = None      # time-to-first-token (his qilinadigan kechikish)
