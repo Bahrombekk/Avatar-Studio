@@ -16,6 +16,7 @@ import json
 import logging
 import queue
 import threading
+import time
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,47 @@ async (args) => {
 _req_q: queue.Queue = queue.Queue()
 _started = False
 _lock = threading.Lock()
+
+# Brauzer sessiyasini proaktiv yangilash (idle'dan keyin kafolatli bekor round-trip
+# bo'lmasligi uchun). Reaktiv (401/403/419) yangilash baribir saqlanadi.
+_SESSION_MAX_AGE = 1200          # 20 daqiqa
+
+# ── Natija keshi (har savol brauzerga bormasin) ──
+# Stansiya kodi deyarli o'zgarmaydi → uzoq TTL. Poyezd narx/joy o'zgaruvchan →
+# qisqa TTL (jonliligini saqlash bilan saytga yukni kamaytirish orasidagi muvozanat).
+_STATION_TTL = 24 * 3600         # 24 soat
+_SEARCH_TTL = 90                 # 90 soniya
+_CACHE_MAX = 500
+_station_cache: dict = {}
+_search_cache: dict = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_get(store: dict, key, ttl: float):
+    """Kesh elementi (yangiligi TTL ichida bo'lsa) yoki None. Eskisini tozalaydi."""
+    with _cache_lock:
+        e = store.get(key)
+        if e is not None:
+            ts, value = e
+            if (time.time() - ts) < ttl:
+                return value
+            store.pop(key, None)
+    return None
+
+
+def _cache_put(store: dict, key, value) -> None:
+    with _cache_lock:
+        store[key] = (time.time(), value)
+        if len(store) > _CACHE_MAX:
+            oldest = min(store, key=lambda k: store[k][0])
+            store.pop(oldest, None)
+
+
+def clear_cache() -> None:
+    """Stansiya + qidiruv keshini tozalaydi (admin /cache/clear va testlar uchun)."""
+    with _cache_lock:
+        _station_cache.clear()
+        _search_cache.clear()
 
 
 # ── Brauzer worker-thread (Playwright sync — bitta thread'da yashashi shart) ──
@@ -64,12 +106,20 @@ def _worker():
                 page.wait_for_timeout(2500)   # csrf-token XHR cookie o'rnatishi uchun
 
             _refresh()
+            last_refresh = [time.time()]
             log.info("[railway] brauzer sessiyasi tayyor")
 
+            def _do_refresh():
+                _refresh()
+                last_refresh[0] = time.time()
+
             def _post(url, body):
+                # Proaktiv: uzoq idle'dan keyin sessiyani oldindan yangilaymiz.
+                if (time.time() - last_refresh[0]) > _SESSION_MAX_AGE:
+                    _do_refresh()
                 r = page.evaluate(_JS_POST, [url, body])
                 if r.get("status") in (401, 403, 419):     # sessiya eskirdi → yangilab qayta
-                    _refresh()
+                    _do_refresh()
                     r = page.evaluate(_JS_POST, [url, body])
                 return r
 
@@ -129,30 +179,56 @@ def warmup():
         pass
 
 
+def shutdown() -> None:
+    """Worker thread'ni xushmuomala to'xtatish (sentinel → brauzer yopiladi)."""
+    global _started
+    with _lock:
+        if not _started:
+            return
+    _req_q.put(None)
+
+
 # ── Stansiya nomi → kod ──
 def resolve_station(name: str):
-    """Shahar/stansiya nomidan kod topadi (O'zbekiston stansiyalari afzal)."""
+    """Shahar/stansiya nomidan kod topadi (O'zbekiston stansiyalari afzal).
+    Natija uzoq TTL bilan keshlanadi (stansiya kodi deyarli o'zgarmaydi)."""
     name = (name or "").strip()
     if not name:
         return None
+    key = name.lower()[:24]
+    cached = _cache_get(_station_cache, key, _STATION_TTL)
+    if cached is not None:
+        return cached
     data = _call("resolve", name[:24])
     stations = ((data or {}).get("data") or {}).get("stations") or []
     if not stations:
-        return None
+        return None                     # topilmadi/xato — keshlamaymiz (qayta urinish)
     # O'zbekiston kodlari "29" bilan boshlanadi — ularni afzal ko'ramiz.
     uz = [s for s in stations if str(s.get("code", "")).startswith("29")]
     pool = uz or stations
     up = name.upper()
     exact = [s for s in pool if s.get("name", "").upper() == up]
     chosen = (exact or pool)[0]
-    return {"code": str(chosen["code"]), "name": chosen.get("name", name)}
+    result = {"code": str(chosen["code"]), "name": chosen.get("name", name)}
+    _cache_put(_station_cache, key, result)
+    return result
 
 
 # ── Poyezd qidirish ──
 def search_trains(dep_code: str, arv_code: str, date: str):
+    """Yo'nalish+sana bo'yicha poyezdlar. Qisqa TTL bilan keshlanadi (narx/joy
+    o'zgaruvchan, lekin 90s ichida saytni qayta urmaymiz)."""
+    key = (dep_code, arv_code, date)
+    cached = _cache_get(_search_cache, key, _SEARCH_TTL)
+    if cached is not None:
+        return cached
     data = _call("search", dep_code, arv_code, date)
-    fwd = (((data or {}).get("data") or {}).get("directions") or {}).get("forward") or {}
-    return fwd.get("trains") or []
+    if data is None:
+        return []                       # transient xato — keshlamaymiz
+    fwd = ((data.get("data") or {}).get("directions") or {}).get("forward") or {}
+    trains = fwd.get("trains") or []
+    _cache_put(_search_cache, key, trains)
+    return trains
 
 
 # ── Niyat (intent) — savol poyezd/chipta haqidami? ──

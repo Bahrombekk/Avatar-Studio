@@ -38,3 +38,40 @@ def test_yandex_configured(monkeypatch):
 def test_load_env_var_precedence(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "shell-value")
     assert load_env_var("OPENAI_API_KEY") == "shell-value"
+
+
+def test_local_default_no_security_issues(monkeypatch):
+    # Local (standart) muhitda standart parol — faqat yumshoq holat, blok yo'q.
+    monkeypatch.delenv("APP_ENV", raising=False)
+    s = Settings(_env_file=None, ADMIN_PASSWORD="admin")
+    assert s.is_production is False
+    assert s.security_issues() == []
+
+
+def test_production_default_password_blocked(monkeypatch):
+    s = Settings(_env_file=None, APP_ENV="production", ADMIN_PASSWORD="admin")
+    assert s.is_production is True
+    issues = s.security_issues()
+    assert any("ADMIN_PASSWORD" in m for m in issues)
+
+
+def test_production_auth_disabled_blocked(monkeypatch):
+    s = Settings(_env_file=None, APP_ENV="production",
+                 ADMIN_PASSWORD="strong-pw", AUTH_DISABLED=True)
+    issues = s.security_issues()
+    assert any("AUTH_DISABLED" in m for m in issues)
+
+
+def test_production_strong_password_ok(monkeypatch):
+    s = Settings(_env_file=None, APP_ENV="prod", ADMIN_PASSWORD="strong-pw")
+    assert s.security_issues() == []
+
+
+def test_get_settings_raises_in_insecure_production(monkeypatch):
+    import app.core.config as cfg
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin")
+    cfg.get_settings.cache_clear()
+    with pytest.raises(RuntimeError):
+        cfg.get_settings()
+    cfg.get_settings.cache_clear()      # boshqa testlarga sof holat qoldiramiz

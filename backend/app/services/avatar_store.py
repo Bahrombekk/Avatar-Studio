@@ -28,6 +28,11 @@ from app.core.paths import (
 log = logging.getLogger(__name__)
 _lock = threading.RLock()
 
+# events.jsonl cheksiz o'smasin: hajm chegaradan oshsa, oxirgi N qatorni saqlab
+# qayta yoziladi (analitika oxirgi 14 kunni ko'rsatadi — eng yangi qatorlar yetarli).
+_EVENTS_ROTATE_BYTES = 4 * 1024 * 1024     # ~4 MB
+_EVENTS_KEEP_LINES = 20000
+
 # stats.json ga ketadigan maydonlar (qolgan hammasi avatar.json — konfiguratsiya).
 _STAT_KEYS = ("sessions", "avgLatency", "cacheRate", "csat")
 
@@ -356,10 +361,29 @@ def log_event(avatar_id, query, cached, gpt=0, tts=0, video=0, total=0,
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+        _rotate_events(path)
         try:
             _bump_stats(aid, total, cached)
         except Exception as e:
             log.warning("stat yangilash xato: %s", e)
+
+
+def _rotate_events(path):
+    """events.jsonl hajmi chegaradan oshsa, oxirgi _EVENTS_KEEP_LINES qatorni
+    saqlab atomik qayta yozadi. Har yozuvda arzon stat() bilan tekshiriladi;
+    qayta yozish faqat fayl katta bo'lganda (kamdan-kam) sodir bo'ladi."""
+    try:
+        if path.stat().st_size <= _EVENTS_ROTATE_BYTES:
+            return
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if len(lines) <= _EVENTS_KEEP_LINES:
+            return
+        kept = lines[-_EVENTS_KEEP_LINES:]
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except Exception as e:  # noqa: BLE001
+        log.warning("events rotatsiya xato: %s", e)
 
 
 def _read_events_for(avatar_id):

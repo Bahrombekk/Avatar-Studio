@@ -65,10 +65,19 @@ class Settings(BaseSettings):
     # ── Admin ──
     ADMIN_PASSWORD: str = "admin"
     AUTH_DISABLED: bool = False
+    # Joylashtirish muhiti: "local" (standart) | "production". Production'da
+    # standart parol yoki AUTH_DISABLED bilan ishga tushishga YO'L QO'YILMAYDI
+    # (get_settings() fail-fast). Har tashkilot instansiyasi production'da
+    # APP_ENV=production qo'yib, o'z ADMIN_PASSWORD'ini belgilashi shart.
+    APP_ENV: str = "local"
 
     # ── Tayyor javoblar matching chegaralari ──
     CANNED_MATCH_RATIO: float = Field(0.82, ge=0.0, le=1.0)
     CANNED_SEM_THRESHOLD: float = Field(0.58, ge=0.0, le=1.0)
+
+    # ── Retention (cheksiz o'sishning oldini olish) ──
+    # Saqlanadigan eng ko'p suhbat soni; eskilari (+xabarlari) avtomatik o'chiriladi.
+    CONVERSATIONS_MAX: int = Field(5000, ge=100)
 
     # ── Server / observability ──
     LOG_LEVEL: str = "INFO"
@@ -86,6 +95,26 @@ class Settings(BaseSettings):
     def yandex_configured(self) -> bool:
         return bool((self.YX_API_KEY or self.YX_IAM_TOKEN) and self.YX_FOLDER_ID)
 
+    @property
+    def is_production(self) -> bool:
+        return (self.APP_ENV or "local").lower() in ("production", "prod")
+
+    def security_issues(self) -> list:
+        """Production'da ruxsat etilmaydigan xavfsiz-mas konfiguratsiyalar ro'yxati.
+        Local'da har doim bo'sh (faqat yumshoq warning beriladi)."""
+        if not self.is_production:
+            return []
+        issues = []
+        if self.ADMIN_PASSWORD == "admin":
+            issues.append(
+                "ADMIN_PASSWORD production'da standart 'admin' — .env'da kuchli parol qo'ying."
+            )
+        if self.AUTH_DISABLED:
+            issues.append(
+                "AUTH_DISABLED production'da yoqilgan — bu butun admin himoyasini o'chiradi."
+            )
+        return issues
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -94,9 +123,16 @@ def get_settings() -> Settings:
     Testlarda env o'zgartirilgach `get_settings.cache_clear()` chaqiring.
     """
     s = Settings()
+    issues = s.security_issues()
+    if issues:
+        # Production + xavfsiz-mas config → ishga tushirishni TO'XTATAMIZ.
+        for m in issues:
+            log.error("XAVFSIZLIK: %s", m)
+        raise RuntimeError("Production xavfsizlik konfiguratsiyasi xato: " + "; ".join(issues))
     if s.ADMIN_PASSWORD == "admin" and not s.AUTH_DISABLED:
         log.warning(
             "ADMIN_PASSWORD standart 'admin' qiymatida — .env'da o'zgartiring "
-            "(yoki sof lokal uchun AUTH_DISABLED=1)."
+            "(yoki sof lokal uchun AUTH_DISABLED=1). Production'da APP_ENV=production "
+            "bo'lsa ishga tushish bloklanadi."
         )
     return s

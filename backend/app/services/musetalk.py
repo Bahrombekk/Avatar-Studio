@@ -6,6 +6,7 @@ alohida: avval per-avatar artefakt (data/avatars/<id>/artifact/) qidiriladi, top
 eski madina_lp artefakti (MT_DIR) fallback bo'ladi. Yuklangan artefaktlar keshlanadi.
 """
 import glob
+import logging
 import os
 import pickle
 import random
@@ -37,6 +38,33 @@ try:
     from musetalk.utils.utils import datagen, load_all_model  # noqa: F401
 except Exception as _imp_err:
     print(f"[LP-MuseTalk] eager import ogohlantirish: {_imp_err}")
+
+log = logging.getLogger(__name__)
+
+
+def _is_cuda_oom(exc) -> bool:
+    """Istisno CUDA xotira yetishmasligi (OOM) ekanini aniqlaydi."""
+    try:
+        import torch
+        if isinstance(exc, torch.cuda.OutOfMemoryError):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return "out of memory" in str(exc).lower()
+
+
+def _reclaim_vram() -> None:
+    """OOM'dan keyin keshlangan VRAM'ni bo'shatadi. Aks holda fragmentlangan xotira
+    qoladi va KEYINGI so'rovlar ham ketma-ket OOM bo'lib, butun xizmat o'ladi."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            log.warning("CUDA kesh bo'shatildi (OOM tiklash)")
+    except Exception as e:  # noqa: BLE001
+        log.warning("VRAM bo'shatish xato: %s", e)
+
 
 # ── Global model holatlari (avatardan mustaqil) ──
 _loaded = False
@@ -659,20 +687,33 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         try:
             for frame in out_frames:
                 proc.stdin.write(frame.astype(np.uint8).tobytes())
-            proc.stdin.close()
-            proc.wait(timeout=60)
-        except Exception as e:
-            print(f"[LP-MuseTalk ffmpeg ERR] {e}")
+            # communicate(): stdin yopiladi, stderr O'QILADI (pipe deadlock yo'q), kutadi.
+            _, err = proc.communicate(timeout=120)
+        except subprocess.TimeoutExpired:
             proc.kill()
+            proc.communicate()
+            log.error("ffmpeg kodlash timeout (out=%s)", out_mp4)
+            return False
+        except Exception as e:  # noqa: BLE001
+            proc.kill()
+            log.error("ffmpeg kodlash xato: %s", e)
+            return False
+        if proc.returncode != 0:
+            tail = (err or b"").decode("utf-8", "replace").strip()[-800:]
+            log.error("ffmpeg kodlash muvaffaqiyatsiz (rc=%s): %s", proc.returncode, tail)
             return False
         _lap("ffmpeg encode")
-
-        return os.path.exists(out_mp4)
+        if not os.path.exists(out_mp4):
+            log.error("ffmpeg tugadi-yu, natija fayli yo'q: %s", out_mp4)
+            return False
+        return True
 
     except Exception as e:
-        print(f"[LP-MuseTalk ERR] {e}")
-        import traceback
-        traceback.print_exc()
+        if _is_cuda_oom(e):
+            _reclaim_vram()
+            log.error("MuseTalk inference GPU xotira yetishmadi (OOM): %s", e)
+        else:
+            log.error("MuseTalk inference xato: %s", e, exc_info=True)
         return False
 
 
@@ -783,7 +824,11 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
                     torch.cuda.synchronize()
                     _stat["gpu"] = time.time() - _g0
             except Exception as e:  # noqa: BLE001
-                print(f"[LP-MuseTalk stream producer ERR] {e}")
+                if _is_cuda_oom(e):
+                    _reclaim_vram()
+                    log.error("MuseTalk stream GPU xotira yetishmadi (OOM): %s", e)
+                else:
+                    log.error("MuseTalk stream producer xato: %s", e, exc_info=True)
         # slot bo'shadi — endi consumer/ffmpeg/tarmoq GPU'siz davom etadi
         frame_q.put(None)
 

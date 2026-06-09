@@ -3,6 +3,7 @@ import json as _json
 import logging
 import re as _re
 import threading
+from collections import OrderedDict
 
 from openai import OpenAI
 
@@ -42,15 +43,25 @@ JAVOB USLUBI (juda muhim — qisqa javob real-time video uchun shart):
 # ulanishiga noyob session_id beradi va shuni history_key sifatida uzatadi.
 # Admin matn-chat (/chat) esa avatar_id'ni kalit qiladi (bitta admin, davomiylik).
 chat_history = []        # None kalit (eski global yo'l)
-_histories = {}          # key (session_id yoki avatar_id) → xabarlar ro'yxati
+_histories = OrderedDict()   # key (session_id yoki avatar_id) → xabarlar ro'yxati
 _hist_lock = threading.Lock()
+# Bir vaqtda saqlanadigan eng ko'p sessiya tarixi. clear_history (WS uzilganda)
+# odatda tozalaydi, lekin crash/uzilish bo'lsa kalitlar to'planib RAM oqishi
+# mumkin — LRU bilan eng eski sessiyani siqib chiqaramiz (kontekst yo'qoladi, xolos).
+_HIST_MAX_SESSIONS = 500
 
 
 def _history_for(key):
     if key is None:
         return chat_history
     with _hist_lock:
-        return _histories.setdefault(key, [])
+        if key in _histories:
+            _histories.move_to_end(key)
+        else:
+            _histories[key] = []
+            while len(_histories) > _HIST_MAX_SESSIONS:
+                _histories.popitem(last=False)   # eng eski sessiyani chiqaramiz
+        return _histories[key]
 
 
 def clear_history(key) -> None:
@@ -165,15 +176,28 @@ def ask_gpt(user_message: str, system_prompt: str = SYSTEM_PROMPT,
     return reply
 
 
+# normalize_for_tts deterministik (temperature=0.0) — bir xil (til, matn) uchun
+# har safar GPT'ga bormaslik kerak. Cheklangan LRU kesh (faqat MUVAFFAQIYATLI
+# natija saqlanadi; fallback/xato keshlanmaydi — keyin qayta urinish mumkin).
+_NORM_CACHE = OrderedDict()
+_NORM_CACHE_MAX = 256
+_norm_lock = threading.Lock()
+
+
 def normalize_for_tts(text: str, language: str = "uz") -> str:
     """Matnni ovozlashtirish (TTS) uchun normallashtiradi: qisqartma/belgilar to'liq
     so'z bo'ladi (km→kilometr, %→foiz...), sonlar/yillar/sanalar so'z bilan yoziladi.
     Yandex/edge TTS sonlar va qisqartmalarni noto'g'ri aytadi — shuni oldini oladi.
-    Xato bo'lsa asl matnni qaytaradi (render to'xtamasin)."""
+    Xato bo'lsa asl matnni qaytaradi (render to'xtamasin). Natija keshlanadi."""
     text = (text or "").strip()
     if not text:
         return text
     name = _LANG_NAMES.get((language or "uz").lower(), "o'zbek")
+    cache_key = (name, text)
+    with _norm_lock:
+        if cache_key in _NORM_CACHE:
+            _NORM_CACHE.move_to_end(cache_key)
+            return _NORM_CACHE[cache_key]
     sp = (
         f"Sen matnni ovozlashtirish (TTS) uchun tayyorlaysan. Quyidagilarni qil va "
         f"FAQAT tayyor matnni qaytar (izoh, qo'shimcha, qavs YO'Q):\n"
@@ -191,9 +215,15 @@ def normalize_for_tts(text: str, language: str = "uz") -> str:
     try:
         out = ask_gpt(text, system_prompt=sp, temperature=0.0,
                       max_tokens=1200, history_key=None)
-        return (out or "").strip() or text
     except Exception:  # noqa: BLE001
-        return text
+        return text                      # xato → keshlamaymiz (keyin qayta urinish)
+    result = (out or "").strip() or text
+    with _norm_lock:
+        _NORM_CACHE[cache_key] = result
+        _NORM_CACHE.move_to_end(cache_key)
+        while len(_NORM_CACHE) > _NORM_CACHE_MAX:
+            _NORM_CACHE.popitem(last=False)
+    return result
 
 
 # ── Avatar skript analizatori (Video Studiya) — matn → tuzilgan JSON ──

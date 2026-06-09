@@ -88,6 +88,12 @@ def cache_stats():
 
 @router.post("/cache/clear")
 def cache_clear(_: bool = Depends(require_admin)):
+    # Jonli temir yo'l kesh ham tozalanadi (yengil import — torch'siz).
+    try:
+        from app.services import railway
+        railway.clear_cache()
+    except Exception:  # noqa: BLE001
+        pass
     return {"cleared": clear_all()}
 
 
