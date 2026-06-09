@@ -6,13 +6,19 @@ tayyor → STT kechikishi keskin kamayadi (REST recognize'dan farqli).
 
 Kalit: YX_SPEECH_TO_SPEECH_KEY (yoki YX_API_KEY) + YX_FOLDER_ID (.env).
 """
+import audioop
+import io
+import logging
 import queue
 import threading
+import wave
 
 import grpc
 from yandex.cloud.ai.stt.v3 import stt_pb2, stt_service_pb2_grpc
 
 from app.core.config import load_env_var
+
+log = logging.getLogger(__name__)
 
 _ENDPOINT = "stt.api.cloud.yandex.net:443"
 _LANG = {"uz": "uz-UZ", "ru": "ru-RU", "en": "en-US", "kk": "kk-KZ"}
@@ -31,6 +37,8 @@ class StreamingSTT:
         self.partial = ""
         self._done = threading.Event()
         self._err = None
+        self._language = language or "uz"
+        self._pcm = bytearray()          # REST fallback uchun xom PCM zaxirasi
         self._lang = _LANG.get((language or "uz").lower(), "ru-RU")
         self._key = load_env_var("YX_SPEECH_TO_SPEECH_KEY") or load_env_var("YX_API_KEY")
         self._folder = load_env_var("YX_FOLDER_ID")
@@ -40,6 +48,7 @@ class StreamingSTT:
     def feed(self, pcm: bytes):
         if pcm:
             self._q.put(pcm)
+            self._pcm += pcm
 
     def finish(self):
         self._q.put(_SENTINEL)
@@ -48,7 +57,37 @@ class StreamingSTT:
         self._done.wait(timeout)
         if self._err:
             raise RuntimeError(self._err)
-        return " ".join(self._finals).strip() or self.partial.strip()
+        text = (" ".join(self._finals).strip() or self.partial.strip())
+        if text:
+            return text
+        # Streaming bo'sh qaytdi — sabab JIMLIK (mikrofon) yoki Yandex streaming
+        # vaqtinchalik bo'sh-qaytishi bo'lishi mumkin. Audio amplitudasini tekshiramiz:
+        # haqiqiy nutq bo'lsa, REST recognize (boshqa endpoint) bilan QAYTA urinamiz.
+        try:
+            amp = audioop.max(bytes(self._pcm), 2) if self._pcm else 0
+        except Exception:  # noqa: BLE001
+            amp = 0
+        log.info("[stt] streaming bo'sh — PCM=%d bayt, max_amplituda=%d", len(self._pcm), amp)
+        if amp < 800:
+            return ""        # jimlik/shovqin — mikrofon haqiqiy nutq yubormadi
+        return self._rest_fallback()
+
+    def _rest_fallback(self) -> str:
+        """Xom PCM'ni WAV qilib Yandex REST recognize'ga yuboradi (streaming bo'sh bo'lsa)."""
+        try:
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(16000)
+                w.writeframes(bytes(self._pcm))
+            from app.realtime import stt as _rest
+            text = _rest.recognize(buf.getvalue(), self._language)
+            log.info("[stt] REST fallback natija='%s'", text)
+            return text or ""
+        except Exception as e:  # noqa: BLE001
+            log.warning("[stt] REST fallback xato: %s", e)
+            return ""
 
     # ── ichki ──
     def _requests(self):

@@ -5,7 +5,8 @@ Foydalanuvchi matn yozadi → GPT javob beradi → ovoz sintez qilinadi → avat
 lab harakati bilan video qiladi.
 
 ```
-matn → GPT-4o-mini → TTS (edge / Yandex) → MuseTalk (madina_lp) → mp4
+matn/ovoz → GPT-4o-mini (+ RAG bilim bazasi + jonli temir yo'l) → TTS (edge/Yandex)
+          → MuseTalk (NVENC GPU enkod) → mp4
 ```
 
 ## Tuzilma
@@ -51,6 +52,21 @@ To'liq qo'llanma → [SETUP.md](SETUP.md).
 | `GET /metrics`       | Process metrikalari (so'rov soni, p50/p95 latency, xato) |
 
 Har so'rov `X-Request-ID` oladi va strukturali (JSON) log qatori yoziladi.
+
+## Jonli integratsiya va sifat (yangi)
+
+- **Jonli temir yo'l ma'lumoti** — foydalanuvchi poyezd/chipta narxi yoki jadvali
+  haqida so'rasa, avatar **eticket.railway.uz**'dan REAL VAQTDA narx/jadval/bilet
+  turlari/bo'sh joylarni oladi (GPT funksiya-chaqirish → `app/services/railway.py`).
+  API XSRF/sessiya talab qiladi → Playwright (headless Chromium) sessiyasi orqali.
+  O'rnatish: `python -m playwright install chromium` (+ WSL: `playwright install-deps chromium`).
+- **NVENC GPU enkod** — `h264_nvenc` mavjud bo'lsa avtomatik ishlatiladi (libx264'dan
+  ~5x tez, ayniqsa Video Studiya HD render). O'rnatish: `bash backend/scripts/setup_nvenc.sh`.
+- **O'zbekcha TTS normalizatori** (`app/services/uznum.py`) — ekranda RAQAM, ovozga
+  SO'Z: `311000 so'm`→"uch yuz o'n bir ming so'm", `1С`→"bir si", `10.06.2026`→"o'ninchi
+  iyun", `08:00`→"soat sakkiz". Yandex/edge to'g'ri talaffuz qiladi.
+- **STT fallback** — Yandex streaming bo'sh qaytsa, to'plangan audio REST recognize'ga
+  yuboriladi (real nutq bo'lsa qayta urinish; jimlik bo'lsa o'tkazib yuboriladi).
 
 ## Testlar va CI
 

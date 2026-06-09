@@ -254,6 +254,16 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
     provider = spec["provider"]
     smooth = spec.get("smooth_af", "")
     speed = max(0.5, min(2.0, float(speed or 1.0)))
+    # O'zbek ovozlari uchun: raqam/sana/vaqt/klass kodlarini SO'Zga o'giramiz
+    # (TTS to'g'ri talaffuz qilsin). Ekranda ko'rsatilgan matn O'ZGARMAYDI — bu faqat
+    # TTS'ga kiruvchi nusxa. Rus/ingliz/qozoq ovozlarida o'tkazib yuboramiz.
+    _vlang = spec.get("lang", "") or spec.get("voice", "")
+    if "uz" in _vlang.lower() or voice in ("madina", "sardor", "nigora", "yulduz"):
+        try:
+            from app.services.uznum import normalize_uz_tts
+            text = normalize_uz_tts(text)
+        except Exception:  # noqa: BLE001
+            pass
     tmps = []
     if provider == "edge":
         # edge-TTS uzun matnni o'zi eplaydi — bo'lishga hojat yo'q.

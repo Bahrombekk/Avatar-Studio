@@ -124,6 +124,9 @@ def build_system_prompt(persona: str = "", resp_len: str = "short",
                         language: str = "uz") -> tuple:
     """Avatar personasi + tilidan to'liq system prompt + max_tokens quradi.
     persona bo'sh bo'lsa — standart Madina prompti (+ til qoidasi)."""
+    # ESLATMA: sonlar/sana/vaqtni so'zga o'girishni system prompt'ga QO'YMAYMIZ —
+    # GPT javobni RAQAM bilan yozadi (ekranga toza), TTS'ga yuborishdan oldin
+    # tts.normalize_uz_tts() lokal (tez) ravishda so'zga o'giradi (ekran≠ovoz).
     length_rule, max_tokens = _RESP_LEN.get(resp_len, _RESP_LEN["short"])
     lang_rule = _lang_rule(language)
     base = (persona or "").strip()

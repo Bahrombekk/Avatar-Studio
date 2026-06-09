@@ -14,6 +14,7 @@ Video baytlari GET /api/realtime/stream/<token> orqali progressive oqadi.
 """
 import asyncio
 import json
+import logging
 import os
 import threading
 import time
@@ -25,6 +26,8 @@ from fastapi.responses import StreamingResponse
 from app.services import avatar_store
 from app.services.gpt import clear_history
 from app.realtime.session import reply_stream, take_pending
+
+log = logging.getLogger("app.realtime.ws")
 
 # DIQQAT: `musetalk` (torch) va `StreamingSTT` (grpc/yandex) handler ICHIDA import
 # qilinadi — modul yuqorisida emas — yengil muhitda (test/CI) import bo'lishi uchun.
@@ -91,6 +94,7 @@ async def realtime_ws(ws: WebSocket):
 
     stt = None          # joriy StreamingSTT sessiyasi
     speak_t0 = 0.0
+    audio_bytes = 0     # shu sessiyada qabul qilingan PCM baytlari (diagnostika)
     cancel_event = None     # joriy javob uchun bekor qilish tokeni (barge-in)
     turn = 0                # navbat raqami — eski javob eventlarini ajratish uchun
 
@@ -145,6 +149,8 @@ async def realtime_ws(ws: WebSocket):
                     from app.realtime.stt_stream import StreamingSTT
                     stt = StreamingSTT(language=language)
                     speak_t0 = time.time()
+                    audio_bytes = 0
+                    log.info("[stt] start lang=%s", language)
                     await send({"type": "listening"})
                 elif text == "stop" or text.startswith("stop:"):
                     if stt is None:
@@ -164,9 +170,12 @@ async def realtime_ws(ws: WebSocket):
                     try:
                         user_text = await loop.run_in_executor(None, cur.result, 10.0)
                     except Exception as e:  # noqa: BLE001
+                        log.warning("[stt] xato (fed=%d bayt): %s", audio_bytes, e)
                         await send({"type": "error", "message": str(e)})
                         continue
                     stt_t = round(time.time() - t, 2)   # to'xtagandan keyin kutish
+                    log.info("[stt] stop: fed=%d bayt, partial='%s', natija='%s'",
+                             audio_bytes, getattr(cur, "partial", ""), user_text)
                     if not user_text:
                         await send({"type": "error", "message": "Nutq aniqlanmadi — qaytadan gapiring"})
                         continue
@@ -181,6 +190,7 @@ async def realtime_ws(ws: WebSocket):
             # binar PCM bo'lak → STT'ga uzatamiz
             audio = msg.get("bytes")
             if audio and stt is not None:
+                audio_bytes += len(audio)
                 stt.feed(audio)
     except WebSocketDisconnect:
         pass

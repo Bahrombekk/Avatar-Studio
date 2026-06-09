@@ -28,6 +28,13 @@ try:
     import diffusers  # noqa: F401
     from diffusers import AutoencoderKL, UNet2DConditionModel  # noqa: F401
     import diffusers.schedulers.scheduling_lms_discrete  # noqa: F401
+    # MUHIM: torchvision va musetalk.utils.utils'ni SHU YERDA (modul import — atomik,
+    # bir marta) yuklaymiz. Aks holda warmup va foydalanuvchi so'rovi bir vaqtda
+    # `from musetalk.utils.utils import datagen` qilsa, torchvision concurrent import
+    # poygasiga tushadi ("partially initialized module ... circular import") va model
+    # yuklanmaydi. Eager import buni butunlay yo'qotadi.
+    import torchvision  # noqa: F401
+    from musetalk.utils.utils import datagen, load_all_model  # noqa: F401
 except Exception as _imp_err:
     print(f"[LP-MuseTalk] eager import ogohlantirish: {_imp_err}")
 

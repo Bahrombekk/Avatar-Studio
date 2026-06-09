@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 log.warning("railway warmup xato: %s", e)
         except Exception as e:
-            log.warning("warmup xato: %s", e)
+            log.warning("warmup xato: %r", e, exc_info=True)
 
     if os.environ.get("AVATAR_STUDIO_SKIP_WARMUP", "").strip() not in ("1", "true", "True"):
         threading.Thread(target=_bg, daemon=True).start()
