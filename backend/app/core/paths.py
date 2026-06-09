@@ -5,6 +5,7 @@ Runtime ma'lumotlar (data/, static/, checkpoints/) backend/ ostida.
 """
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from app.core.config import BACKEND_DIR
@@ -32,8 +33,10 @@ AVATAR_MASK_COORD = AVATAR_DIR / "mask_coords.pkl"
 AVATAR_MASK_DIR = AVATAR_DIR / "mask"
 AVATAR_IMGS_DIR = AVATAR_DIR / "full_imgs"
 
-# ── Runtime ma'lumotlar (backend/ ostida) ──
-DATA_DIR = BACKEND_DIR / "data"
+# ── Runtime ma'lumotlar (standart: backend/data; DATA_DIR env bilan bekor qilsa bo'ladi) ──
+# Env override asosan test izolatsiyasi uchun (tmp papkaga yo'naltirish), shuningdek
+# bir necha instansiya/deploy stsenariylarida foydali.
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(BACKEND_DIR / "data")))
 STATIC_DIR = BACKEND_DIR / "static"
 CHECKPOINTS_DIR = BACKEND_DIR / "checkpoints"
 IDLE_IMAGE = STATIC_DIR / "idle.jpg"
@@ -138,6 +141,19 @@ def avatar_motion_artifact(avatar_id: str, mtype: str) -> Path:
     return avatar_motion_dir(avatar_id) / mtype
 
 
+def avatar_knowledge_dir(avatar_id: str) -> Path:
+    """Per-avatar bilim bazasi (RAG) papkasi: knowledge/index.json + sources/."""
+    return avatar_dir(avatar_id) / "knowledge"
+
+
+def avatar_knowledge_index(avatar_id: str) -> Path:
+    return avatar_knowledge_dir(avatar_id) / "index.json"
+
+
+def avatar_knowledge_sources_dir(avatar_id: str) -> Path:
+    return avatar_knowledge_dir(avatar_id) / "sources"
+
+
 def avatar_artifact_dir(avatar_id: str) -> Path:
     """MuseTalk preprocessing natijasi (latents.pt, coords.pkl, mask/, full_imgs/, ...).
 
@@ -160,9 +176,12 @@ def avatar_artifact_paths(avatar_id: str) -> dict:
     }
 
 
-# ── Vaqtinchalik (Linux tmpfs) ──
-TEMP_DIR = Path("/tmp/lp_avatar_temp")
-VID_OUT_DIR = Path("/tmp/lp_avatar_videos")
+# ── Vaqtinchalik (Linux tmpfs; Windows/test'da OS temp papkasi) ──
+# Production WSL'da /tmp tmpfs tez. Windows yoki testda OS temp ishlatiladi
+# (C:\tmp yaratib qo'ymaslik uchun). TEMP_DIR/VID_OUT_DIR env bilan bekor qilsa bo'ladi.
+_TMP_ROOT = "/tmp" if os.name == "posix" else tempfile.gettempdir()
+TEMP_DIR = Path(os.environ.get("TEMP_DIR", os.path.join(_TMP_ROOT, "lp_avatar_temp")))
+VID_OUT_DIR = Path(os.environ.get("VID_OUT_DIR", os.path.join(_TMP_ROOT, "lp_avatar_videos")))
 
 # ── Frontend (Vite build natijasi) ──
 PROJECT_ROOT = BACKEND_DIR.parent

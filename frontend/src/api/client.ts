@@ -35,6 +35,43 @@ export interface Canned {
   state: string;
 }
 
+/** Bilim bazasi (RAG) manbasi (yuklangan hujjat). */
+export interface KnowledgeSource {
+  id: string;
+  type: string;
+  name: string;
+  added: string;
+  chars: number;
+  n_chunks: number;
+}
+
+/** Bilim bazasi FAQ (savol-javob). */
+export interface KnowledgeFaq {
+  id: string;
+  q: string;
+  a: string;
+  added: string;
+}
+
+/** Suhbat (ro'yxat satri). */
+export interface Conversation {
+  id: number;
+  session_key: string;
+  avatar_id?: string;
+  started: string;
+  updated: string;
+  msg_count: number;
+  last_text?: string;
+}
+
+/** Suhbat xabari. */
+export interface ConversationMessage {
+  role: string;
+  text: string;
+  ts: string;
+  request_id?: string;
+}
+
 // ── Admin token (localStorage) ──
 const TOKEN_KEY = "admin_token";
 export function getToken(): string {
@@ -294,6 +331,71 @@ export const API = {
   // Ovoz namunasi (preview) — editorda eshitib tanlash uchun. (/voices — /api prefiksiz)
   voicePreviewUrl(id: string): string {
     return `/voices/${encodeURIComponent(id)}/preview`;
+  },
+
+  // ── Bilim bazasi (RAG) ──
+  async knowledgeList(id: string): Promise<{ sources: KnowledgeSource[]; faqs: KnowledgeFaq[] }> {
+    const r = await fetch(`/api/avatars/${encodeURIComponent(id)}/knowledge`, {
+      headers: authHeaders(),
+    });
+    if (!r.ok) throw new Error("bilim bazasi yuklanmadi");
+    return (await r.json()) as { sources: KnowledgeSource[]; faqs: KnowledgeFaq[] };
+  },
+
+  async knowledgeUpload(id: string, file: File): Promise<{ ok: boolean; id: string }> {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`/api/avatars/${encodeURIComponent(id)}/knowledge/upload`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: fd,
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "hujjat yuklanmadi"));
+    return (await r.json()) as { ok: boolean; id: string };
+  },
+
+  async knowledgeAddFaq(id: string, question: string, answer: string): Promise<{ ok: boolean; id: string }> {
+    const r = await fetch(`/api/avatars/${encodeURIComponent(id)}/knowledge/faq`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ question, answer }),
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "FAQ qo'shilmadi"));
+    return (await r.json()) as { ok: boolean; id: string };
+  },
+
+  async knowledgeDeleteSource(id: string, srcId: string): Promise<void> {
+    const r = await fetch(
+      `/api/avatars/${encodeURIComponent(id)}/knowledge/source/${encodeURIComponent(srcId)}`,
+      { method: "DELETE", headers: authHeaders() },
+    );
+    if (!r.ok) throw new Error("o'chirilmadi");
+  },
+
+  async knowledgeDeleteFaq(id: string, faqId: string): Promise<void> {
+    const r = await fetch(
+      `/api/avatars/${encodeURIComponent(id)}/knowledge/faq/${encodeURIComponent(faqId)}`,
+      { method: "DELETE", headers: authHeaders() },
+    );
+    if (!r.ok) throw new Error("o'chirilmadi");
+  },
+
+  // ── Suhbatlar (saqlangan transkriptlar) ──
+  async conversations(limit = 100): Promise<Conversation[]> {
+    const r = await fetch(`/api/conversations?limit=${limit}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error("suhbatlar yuklanmadi");
+    return ((await r.json()) as { conversations: Conversation[] }).conversations;
+  },
+
+  async conversation(
+    id: number,
+  ): Promise<{ conversation: Conversation; messages: ConversationMessage[] }> {
+    const r = await fetch(`/api/conversations/${id}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error("suhbat yuklanmadi");
+    return (await r.json()) as {
+      conversation: Conversation;
+      messages: ConversationMessage[];
+    };
   },
 
   // Real pipeline: SSE oqimi. onEvent(type, data) chaqiriladi.

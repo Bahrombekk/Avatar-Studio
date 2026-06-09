@@ -2,6 +2,19 @@
 
 Jami hajm: **~12 GB** (modellar bilan birga).
 
+> **Yangilanish (production hardening):** quyidagi daraxt asosiy tuzilmani ko'rsatadi,
+> lekin keyingi qo'shimchalar ham bor:
+> - **Frontend** endi **TypeScript** (`.tsx`/`.ts`; `App.jsx`/`main.jsx` o'rniga `main.tsx`,
+>   `app/router.tsx`, `api/client.ts`).
+> - **Backend yangi modullar:** `core/logging.py` (JSON log + request_id), `core/middleware.py`
+>   (request-id + `/metrics`), `services/knowledge.py` (RAG bilim bazasi),
+>   `services/conversations.py` (SQLite suhbat saqlash), `api/routes/{knowledge,conversations}.py`.
+> - **Config:** `core/config.py` da `Settings` (pydantic-settings, validatsiyali).
+> - **Testlar:** `backend/tests/` (pytest, yengil deps) + frontend `*.test.ts(x)` (vitest);
+>   CI: `.github/workflows/ci.yml`.
+> - **Deploy:** `Dockerfile` + `docker-compose.yml` (ilova qatlami).
+> - Og'ir ML importlari (`musetalk`/`torch`) endi **lazy** — `create_app()` ularsiz import bo'ladi.
+
 ```
 Avatar_Studio/
 │

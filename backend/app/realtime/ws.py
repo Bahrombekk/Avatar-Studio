@@ -22,10 +22,12 @@ import uuid
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from app.services import avatar_store, musetalk
+from app.services import avatar_store
 from app.services.gpt import clear_history
 from app.realtime.session import reply_stream, take_pending
-from app.realtime.stt_stream import StreamingSTT
+
+# DIQQAT: `musetalk` (torch) va `StreamingSTT` (grpc/yandex) handler ICHIDA import
+# qilinadi — modul yuqorisida emas — yengil muhitda (test/CI) import bo'lishi uchun.
 
 router = APIRouter(tags=["realtime"])
 
@@ -38,20 +40,39 @@ def realtime_stream(token: str):
     info = take_pending(token)
     if not info:
         raise HTTPException(404, "Stream topilmadi yoki muddati o'tgan")
-    wav = info["wav"]
 
     def gen():
+        from app.services import musetalk
         try:
-            for chunk in musetalk.musetalk_infer_stream(
-                wav, fps=info["fps"], avatar_id=info["avatar_id"],
-                start_frame=info.get("start_frame"), max_dim=info.get("max_dim"),
-            ):
-                yield chunk
+            if info.get("chunk_queue") is not None:
+                # SENTENCE-LEVEL: jumla wav'lari navbatdan kelib turadi (None = tugadi).
+                for chunk in musetalk.musetalk_infer_stream_queue(
+                    info["chunk_queue"], fps=info["fps"], avatar_id=info["avatar_id"],
+                    start_frame=info.get("start_frame"), max_dim=info.get("max_dim"),
+                    cancel=info.get("cancel"),
+                ):
+                    yield chunk
+            else:
+                # Eski yo'l — bitta to'liq wav.
+                for chunk in musetalk.musetalk_infer_stream(
+                    info["wav"], fps=info["fps"], avatar_id=info["avatar_id"],
+                    start_frame=info.get("start_frame"), max_dim=info.get("max_dim"),
+                ):
+                    yield chunk
         finally:
-            try:
-                os.remove(wav)
-            except OSError:
-                pass
+            # Vaqtinchalik jumla wav'larini tozalaymiz (rt_<token>_*.wav) yoki bitta wav.
+            import glob as _glob
+            from app.core.paths import TEMP_DIR as _TMP
+            for p in _glob.glob(str(_TMP / f"rt_{token}_*.wav")):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+            if info.get("wav"):
+                try:
+                    os.remove(info["wav"])
+                except OSError:
+                    pass
 
     return StreamingResponse(gen(), media_type="video/mp4",
                              headers={"Cache-Control": "no-store"})
@@ -70,18 +91,28 @@ async def realtime_ws(ws: WebSocket):
 
     stt = None          # joriy StreamingSTT sessiyasi
     speak_t0 = 0.0
+    cancel_event = None     # joriy javob uchun bekor qilish tokeni (barge-in)
+    turn = 0                # navbat raqami — eski javob eventlarini ajratish uchun
 
     async def send(obj):
         await ws.send_text(json.dumps(obj, ensure_ascii=False))
 
-    async def run_reply(user_text, start_frame=None):
-        """GPT+TTS+video quvurini thread'da yuritib, eventlarni yuboradi."""
+    def stop_active_reply():
+        """Oqayotgan javobni (agar bo'lsa) to'xtatadi — barge-in."""
+        nonlocal cancel_event
+        if cancel_event is not None:
+            cancel_event.set()
+            cancel_event = None
+
+    async def run_reply(user_text, start_frame, cancel, turn_id):
+        """GPT+TTS+video quvurini thread'da yuritib, eventlarni yuboradi (task sifatida —
+        receive-loop bloklanmaydi, shuning uchun barge-in xabari o'qiladi)."""
         q: asyncio.Queue = asyncio.Queue()
 
         def worker():
             try:
-                for ev in reply_stream(user_text, avatar_id, voice,
-                                       session_id=session_id, start_frame=start_frame):
+                for ev in reply_stream(user_text, avatar_id, voice, session_id=session_id,
+                                       start_frame=start_frame, cancel=cancel):
                     loop.call_soon_threadsafe(q.put_nowait, ev)
             except Exception as e:  # noqa: BLE001
                 loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "message": str(e)})
@@ -93,7 +124,7 @@ async def realtime_ws(ws: WebSocket):
             ev = await q.get()
             if ev is None:
                 break
-            await send(ev)
+            await send({**ev, "turn": turn_id})
 
     try:
         while True:
@@ -105,7 +136,13 @@ async def realtime_ws(ws: WebSocket):
             if text is not None:
                 if text == "ping":
                     await send({"type": "pong"})
+                elif text == "barge":
+                    # Foydalanuvchi javob o'rtasida qayta gapirdi → joriy javobni tashlaymiz.
+                    stop_active_reply()
+                    await send({"type": "canceled", "turn": turn})
                 elif text == "start":
+                    stop_active_reply()      # gapirish = oldingi javobni bo'lish (agar bor)
+                    from app.realtime.stt_stream import StreamingSTT
                     stt = StreamingSTT(language=language)
                     speak_t0 = time.time()
                     await send({"type": "listening"})
@@ -133,8 +170,12 @@ async def realtime_ws(ws: WebSocket):
                     if not user_text:
                         await send({"type": "error", "message": "Nutq aniqlanmadi — qaytadan gapiring"})
                         continue
-                    await send({"type": "transcript", "text": user_text, "t": stt_t})
-                    await run_reply(user_text, start_frame=start_frame)
+                    stop_active_reply()                 # ehtiyot: oldingi javob qolgan bo'lsa
+                    turn += 1
+                    cancel_event = threading.Event()
+                    await send({"type": "transcript", "text": user_text, "t": stt_t, "turn": turn})
+                    # AWAIT EMAS — task sifatida ishga tushiramiz, loop barge'ni o'qiy oladi.
+                    asyncio.create_task(run_reply(user_text, start_frame, cancel_event, turn))
                 continue
 
             # binar PCM bo'lak → STT'ga uzatamiz

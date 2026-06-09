@@ -3,7 +3,11 @@
 ws.py mikrofon PCM'ini Yandex streaming STT'ga uzatadi (gapirish paytida) → matn.
 Bu modul SHU MATNdan boshlab: GPT (voice) → TTS (parallel, bitta wav) → video
 progressive oqim. Avatar idle loopda turadi (kutish ko'rinmaydi).
+
+TEZLIK: bitta to'liq wav + Whisper BIR MARTA (jumla-jumla emas) — git'dagi tez oqim.
+RAG bilim bazasi (agar avatar uchun sozlangan bo'lsa) system prompt'ga qo'shiladi.
 """
+import logging
 import threading
 import time
 import uuid
@@ -13,6 +17,7 @@ from app.services import avatar_store
 from app.services.gpt import SYSTEM_PROMPT, ask_gpt_stream, build_system_prompt
 from app.services.tts import tts
 
+log = logging.getLogger(__name__)
 _PENDING = {}
 _PENDING_LOCK = threading.Lock()
 
@@ -23,21 +28,19 @@ def take_pending(token: str):
 
 
 def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
-                 session_id: str = None, start_frame=None):
+                 session_id: str = None, start_frame=None, cancel=None):
     """Matndan javob quvuri. {text} → {stream,url} → {done}  yoki {error}.
 
     session_id — har WS ulanishiga noyob (multi-user): GPT suhbat tarixi shu kalit
-    bo'yicha alohida saqlanadi, shunda bir avatarga gaplashayotgan turli userlar
-    bir-birining kontekstini ko'rmaydi. Berilmasa avatar_id'ga qaytadi.
+    bo'yicha alohida saqlanadi. cancel — barge-in tokeni (single-wav oqimda hozircha
+    e'tiborsiz; ws.py interfeysi mosligi uchun qabul qilinadi).
     """
     avatar = avatar_store.get_avatar(avatar_id) if avatar_id else None
     history_key = session_id or avatar_id
     use_voice = voice or (avatar or {}).get("voice", "madina")
     fps = int((avatar or {}).get("fps", 25)) or 25
 
-    # ── TAYYOR JAVOB (pre-rendered Q&A) ── Savol biror tayyor javobga mos kelsa,
-    # GPT+TTS+jonli-gen'ni butunlay o'tkazib, tayyor videoni DARROV beramiz (idle
-    # bilan silliq: render lead-in/tail idle pozada). Foydalanuvchi farqini sezmaydi.
+    # ── TAYYOR JAVOB (pre-rendered Q&A) ── mos kelsa tayyor videoni DARROV beramiz.
     if avatar_id:
         try:
             from app.services import canned
@@ -66,6 +69,17 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
         temperature = float(avatar.get("temperature", 0.4))
     else:
         system_prompt, max_tokens, temperature = SYSTEM_PROMPT, 360, 0.4
+
+    # RAG — bilim bazasidan mos bo'laklarni system prompt'ga qo'shamiz (asoslash).
+    if avatar_id:
+        try:
+            from app.services import knowledge
+            _block = knowledge.build_context_block(knowledge.retrieve(avatar_id, user_text))
+            if _block:
+                system_prompt = system_prompt + "\n\n" + _block
+        except Exception as e:  # noqa: BLE001
+            log.warning("[rag] augment xato: %s", e)
+
     t = time.time()
     parts = []
     ttft = None      # time-to-first-token (his qilinadigan kechikish)
@@ -82,13 +96,12 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
         return
     reply = "".join(parts).strip()
     gpt_t = round(time.time() - t, 2)
-    # To'liq matn (frontend yakunlash/timing uchun) — ttft = birinchi token vaqti.
     yield {"type": "text", "text": reply, "t": gpt_t, "ttft": ttft}
 
     if avatar_id:
         try:
             avatar_store.log_event(avatar_id, user_text, False, gpt=0, tts=0, video=0, total=0)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     # TTS — bitta wav (Yandex bo'laklari tts() ichida PARALLEL sintez qilinadi)

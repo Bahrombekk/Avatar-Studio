@@ -1,11 +1,18 @@
 """Avatar CRUD endpointlari (/api/avatars). Yozish/qurish — admin himoyasi bilan."""
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.deps import require_admin
 from app.core.paths import avatar_idle_file, avatar_portrait_file
 from app.schemas.avatar import AvatarCreate, AvatarUpdate
-from app.services import avatar_store, face, idle, jobs, musetalk, preprocess
+from app.services import avatar_store, idle, jobs
+
+# DIQQAT: og'ir servislar (`face` → insightface, `musetalk` → torch, `preprocess`)
+# handler ICHIDA import qilinadi — `create_app()` yengil muhitda import bo'lishi uchun.
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/avatars", tags=["avatars"])
 
@@ -69,6 +76,7 @@ async def upload_photo(avatar_id: str, file: UploadFile = File(...), _: bool = A
     if len(data) > MAX_PHOTO_BYTES:
         raise HTTPException(413, f"Rasm juda katta (maksimum {MAX_PHOTO_BYTES // (1024 * 1024)} MB)")
 
+    from app.services import face
     result = face.validate_portrait(data)
     if not result["ok"]:
         raise HTTPException(422, result["error"])
@@ -130,6 +138,8 @@ def build_musetalk(avatar_id: str, _: bool = Admin):
     if jobs.is_running(avatar_id):
         raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
 
+    from app.services import musetalk, preprocess
+
     def _rebuild():
         # Artefakt ALOHIDA jarayonda (subprocess) quriladi — u o'z keshini tozalaydi,
         # lekin BU ishlab turgan serverning xotira keshini emas. Shuning uchun
@@ -152,7 +162,7 @@ def build_musetalk(avatar_id: str, _: bool = Admin):
                 musetalk.invalidate(avatar_id)
                 avatar_store.set_motion(avatar_id, True)
             except Exception as e:  # noqa: BLE001
-                print(f"[build-musetalk] motion auto-build o'tkazildi (xato): {e}")
+                log.warning("[build-musetalk] motion auto-build o'tkazildi (xato): %s", e)
 
     started = jobs.start(avatar_id, "musetalk_prep", _rebuild)
     if not started:
@@ -175,6 +185,8 @@ def build_motion(avatar_id: str, _: bool = Admin):
         raise HTTPException(409, "Avval avatar modelini quring (Idle + Artefakt)")
     if jobs.is_running(avatar_id):
         raise HTTPException(409, "Generatsiya allaqachon ketmoqda")
+
+    from app.services import musetalk, preprocess
 
     def _job():
         idle.generate_motion_clips(avatar_id)            # LivePortrait kliplar

@@ -11,6 +11,7 @@ Saqlash:
 """
 import difflib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -19,10 +20,15 @@ import time
 import uuid
 
 from app.core.paths import CANNED_DIR, CANNED_INDEX, canned_file, TEMP_DIR
-from app.services import avatar_store, musetalk, render
+from app.services import avatar_store
 from app.services.gpt import analyze_script
 from app.services.tts import DEFAULT_VOICE, VOICES, tts
 
+# DIQQAT: `musetalk` va `render` (torch) faqat `_run()` ICHIDA import qilinadi —
+# modul yuqorisida emas — matching mantiqi (`match`, `_cos`, ...) yengil muhitda
+# (test/CI) import bo'lishi uchun.
+
+log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _JOBS = {}                  # cid → {state, error, meta}
 MAX_CHARS = 2000
@@ -239,6 +245,7 @@ def start_generate(avatar_id: str, questions: list, text: str = "", voice: str =
 def _run(cid, avatar, voice, mode, text, prompt, fps, meta):
     """Render quvurini takrorlaydi (analyze → TTS → motion → musetalk_infer), lekin
     chiqishni canned/<id>.mp4 ga yozadi. Boshi/oxiri idle pozada (real-time bilan mos)."""
+    from app.services import musetalk, render
     avatar_id = avatar["id"]
     language = avatar.get("language", "uz")
     wav = str(TEMP_DIR / f"canned_{cid}.wav")
@@ -249,7 +256,7 @@ def _run(cid, avatar, voice, mode, text, prompt, fps, meta):
             from app.services.gpt import embed_texts
             meta["q_emb"] = embed_texts(meta.get("questions", []))
         except Exception as e:  # noqa: BLE001
-            print(f"[canned {cid}] embed o'tkazildi: {e}")
+            log.warning("[canned %s] embed o'tkazildi: %s", cid, e)
             meta["q_emb"] = []
         if mode == "gpt":
             text = render._script_from_gpt(prompt, avatar)
@@ -293,7 +300,7 @@ def _run(cid, avatar, voice, mode, text, prompt, fps, meta):
                 art = musetalk.assemble_motion_timeline(avatar_id, units)
                 meta["motion_units"] = [[u[0], int(u[1])] for u in units]
             except Exception as e:  # noqa: BLE001
-                print(f"[canned {cid}] motion assemble xato → oddiy idle: {e}")
+                log.warning("[canned %s] motion assemble xato → oddiy idle: %s", cid, e)
                 art = None
         ok = musetalk.musetalk_infer(src_wav, str(out), fps=fps, avatar_id=avatar_id,
                                      hd=bool(meta.get("hd")), artifact=art,
@@ -307,7 +314,7 @@ def _run(cid, avatar, voice, mode, text, prompt, fps, meta):
     except Exception as e:  # noqa: BLE001
         meta["state"] = "error"
         _JOBS[cid] = {"state": "error", "error": str(e), "meta": meta}
-        print(f"[canned {cid}] XATO: {e}")
+        log.error("[canned %s] XATO: %s", cid, e)
     finally:
         for p in (wav, wav_pad):
             try:

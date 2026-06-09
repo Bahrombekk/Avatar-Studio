@@ -74,3 +74,11 @@ backend/data/renders/
 
 # Runtime statistika (har suhbat/renderdan keyin o'zgaradi — kuzatishga hojat yo'q)
 backend/data/avatars/*/stats.json
+
+# Suhbat saqlash DB (runtime — har suhbatda o'zgaradi)
+backend/data/conversations.db
+
+# Vaqtinchalik diagnostika/skriptlar
+backend/_test_streamq.py
+backend/_serve.sh
+_watch_sq.sh

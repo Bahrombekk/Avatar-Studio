@@ -1,0 +1,29 @@
+# Avatar Studio — lokal ishga tushirish (ilova qatlami).
+#
+# `docker compose up --build` → http://localhost:8100/studio
+#
+# Eslatma: to'liq GPU lip-sync uchun NVIDIA runtime + models/ hajmi + og'ir ML
+# bog'liqliklari kerak (quyidagi `deploy.resources` blokini va models volume'ni oching).
+services:
+  avatar-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8100:8100"
+    env_file:
+      - backend/.env
+    volumes:
+      # Doimiy ma'lumotlar (avatarlar, kesh, suhbatlar DB, bilim bazasi).
+      - ./backend/data:/app/backend/data
+      # GPU inference uchun modellarni ulang (ixtiyoriy — to'liq pipeline kerak bo'lsa):
+      # - ./models:/app/models
+    restart: unless-stopped
+    # ── GPU uchun (ixtiyoriy; NVIDIA Container Toolkit o'rnatilgan bo'lsa) ──
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]

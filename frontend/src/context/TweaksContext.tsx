@@ -9,6 +9,7 @@ import type { Tweaks, SetTweak } from "@/types/tweaks";
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/ {
   theme: "editorial",
   fontSet: "editorial",
+  uiLang: "uz",
   secConversations: true,
   secUsers: true,
   secSettings: true,

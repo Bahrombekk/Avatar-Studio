@@ -7,9 +7,10 @@ from fastapi.responses import FileResponse
 from app.api.deps import require_admin
 from app.core.config import load_env_var
 from app.core.paths import AVATAR_ID, AVATARS_DIR, IDLE_IMAGE, voice_videos_dir
-from app.services import musetalk
 from app.services.cache import aggregate_stats, clear_all
 from app.services.tts import VOICES, DEFAULT_VOICE
+
+# DIQQAT: `app.services.musetalk` (torch) `health()` ICHIDA import qilinadi.
 
 router = APIRouter(tags=["system"])
 
@@ -50,14 +51,34 @@ def idle_image():
 @router.get("/health")
 def health():
     yx = (load_env_var("YX_API_KEY") or load_env_var("YX_IAM_TOKEN")) and load_env_var("YX_FOLDER_ID")
+    try:
+        from app.services import musetalk
+        model_state = "loaded" if musetalk.is_loaded() else "loading"
+    except Exception:
+        # Og'ir ML bog'liqliklari mavjud bo'lmagan yengil muhit (test/CI).
+        model_state = "unavailable"
     return {
         "status": "ok",
-        "model": "loaded" if musetalk.is_loaded() else "loading",
+        "model": model_state,
         "avatar": AVATAR_ID,
         "api_key": "set ✓" if os.environ.get("OPENAI_API_KEY") else "NOT SET",
         "yandex": "set ✓" if yx else "NOT SET",
         "cache": aggregate_stats(),
     }
+
+
+@router.get("/metrics")
+def metrics():
+    """Process-level metrikalar (so'rov soni, xato, p50/p95 latency, kesh, uptime)."""
+    from app.core.middleware import metrics as _m
+    snap = _m.snapshot()
+    snap["cache"] = aggregate_stats()
+    try:
+        from app.services import musetalk
+        snap["model_loaded"] = musetalk.is_loaded()
+    except Exception:
+        snap["model_loaded"] = None
+    return snap
 
 
 @router.get("/cache/stats")

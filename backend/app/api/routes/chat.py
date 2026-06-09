@@ -7,13 +7,16 @@ from fastapi.responses import StreamingResponse
 from app.api.deps import resolve
 from app.schemas.chat import ChatRequest
 from app.services import avatar_store
-from app.services.pipeline import run_pipeline, run_pipeline_stream
 
 router = APIRouter(tags=["chat"])
+
+# DIQQAT: `app.services.pipeline` (musetalk/torch) handler ICHIDA import qilinadi —
+# modul yuqorisida emas — `create_app()` yengil muhitda import bo'lishi uchun.
 
 
 @router.post("/chat")
 def chat(req: ChatRequest):
+    from app.services.pipeline import run_pipeline
     msg = req.message.strip()
     if not msg:
         raise HTTPException(400, "Xabar bo'sh")
@@ -31,6 +34,7 @@ def chat(req: ChatRequest):
 
 @router.post("/chat-stream")
 def chat_stream(req: ChatRequest):
+    from app.services.pipeline import run_pipeline_stream
     msg = req.message.strip()
     if not msg:
         raise HTTPException(400, "Xabar bo'sh")

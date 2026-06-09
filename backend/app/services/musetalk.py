@@ -715,6 +715,9 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
 
     proc = subprocess.Popen([
         "ffmpeg", "-y", "-v", "error",
+        # probesize/analyzeduration minimal — ffmpeg rawvideo (pipe) kirishni 5MB
+        # "probe" qilib kutmaydi; 1-kadr darrov o'qiladi (start kechikmaydi).
+        "-probesize", "32", "-analyzeduration", "0",
         "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
         *_audio_offset_args(), "-i", wav_path,
         "-map", "0:v", "-map", "1:a",
@@ -729,8 +732,9 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
         x1, y1, x2, y2 = coords[ci]
         ori = frames[ci].copy()
         try:
+            # Realtime: INTER_LINEAR (LANCZOS4 dan ~2x tez; sifat farqi sezilmaydi).
             rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1),
-                            interpolation=cv2.INTER_LANCZOS4)
+                            interpolation=cv2.INTER_LINEAR)
             rf = _sharpen_region(rf, _SHARPEN)
         except Exception:
             return None
@@ -832,3 +836,188 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
             wall = time.time() - _w0
             print(f"[PROFILE-STREAM] {video_num} kadr | GPU={_stat['gpu']:.3f}s | "
                   f"jami devor-soat={wall:.3f}s | consumer+ffmpeg overlap={wall-_stat['gpu']:.3f}s")
+
+
+def _wav_pcm16(wav_path: str) -> bytes:
+    """wav → xom s16le 16kHz mono PCM baytlari (ffmpeg orqali, ishonchli)."""
+    p = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", wav_path,
+         "-f", "s16le", "-ar", "16000", "-ac", "1", "pipe:1"],
+        capture_output=True,
+    )
+    return p.stdout or b""
+
+
+def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = None,
+                                start_frame=None, max_dim=None, cancel=None):
+    """SENTENCE-LEVEL streaming: javob JUMLALARI wav bo'laklari sifatida `chunk_queue`'dan
+    kelib turadi (None = tugadi). Avatar 1-jumlani gapira boshlaydi, ayni paytda keyingi
+    jumla yozilyapti/sintez qilinyapti → kechikish keskin kamayadi.
+
+    CONTINUITY KAFOLATI:
+      • Bosh harakati — kadr sikli ofseti (pos) jumladan-jumlaga UZATILADI (sakramaydi).
+      • Og'iz yopilishi (tail crossfade) — faqat ENG OXIRIDA (oraliq jumlalarda emas).
+      • Bitta uzluksiz ffmpeg (frag-mp4) → brauzer bitta video sifatida o'ynaydi.
+      • Audio FIFO orqali jumla PCM'lari ketma-ket muxlanadi (A/V sinxron).
+    """
+    import torch
+    import cv2
+    import numpy as np
+    import threading
+    import os as _os
+    import tempfile
+    from musetalk.utils.utils import datagen
+    from musetalk.utils.blending import get_image_blending
+
+    ensure_loaded()
+    art = _get_artifact(avatar_id, max_dim)
+    n = len(art["frames"])
+    if start_frame is None or not n:
+        _start = _cycle_start(n)
+    else:
+        _start = int(start_frame) % n
+    latents = _rotate(art["latents"], _start)
+    coords = _rotate(art["coords"], _start)
+    mask_coords = _rotate(art["mask_coords"], _start)
+    frames = _rotate(art["frames"], _start)
+    masks = _rotate(art["masks"], _start)
+    h, w = frames[0].shape[:2]
+
+    # Audio uchun ODDIY QUVUR (os.pipe) — FIFO open-rendezvous deadlock'ini yo'qotadi
+    # (FIFO'da producer ochilishda, ffmpeg stdin video kutib — o'zaro qulflanardi).
+    # ffmpeg `pipe:<fd>` orqali meros olgan o'qish-fd'dan o'qiydi; biz audio_w'ga yozamiz.
+    import queue as _q
+    audio_r, audio_w = _os.pipe()
+    _os.set_inheritable(audio_r, True)
+
+    proc = subprocess.Popen([
+        "ffmpeg", "-y", "-v", "error",
+        # thread_queue_size — har kirish uchun katta bufer: ffmpeg bitta quvurni o'qiyotganda
+        # ikkinchisi to'lib-toshmaydi (ikki-quvur deadlock'ini yo'qotadi).
+        # probesize/analyzeduration minimal — ffmpeg rawvideo kirishni "probe" qilish
+        # uchun 5MB bufer kutmaydi (aks holda 1-kadr (2.7MB) yozishda DEADLOCK bo'lardi:
+        # ffmpeg ko'proq kutadi, producer yozolmaydi, hech narsa o'qilmaydi).
+        "-probesize", "32", "-analyzeduration", "0", "-thread_queue_size", "4096",
+        "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "pipe:0",
+        "-probesize", "32", "-analyzeduration", "0", "-thread_queue_size", "4096",
+        "-f", "s16le", "-ar", "16000", "-ac", "1", "-i", f"pipe:{audio_r}",
+        "-map", "0:v", "-map", "1:a",
+        *_venc_args(fps), "-c:a", "aac", "-b:a", "128k",
+        # max_interleave_delta 0 — ffmpeg interleave uchun kutmasdan paketlarni darrov
+        # muxer'ga beradi (frag'lar tez chiqadi, birinchi kadr bloklanmaydi).
+        "-max_interleave_delta", "0",
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
+    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+       pass_fds=(audio_r,))
+    _os.close(audio_r)   # ota jarayon o'qish uchini yopadi (ffmpeg meros oldi)
+
+    # Audio'ni ALOHIDA thread yozadi — GPU loop'ni quvur to'lib bloklamaydi.
+    audio_bq: _q.Queue = _q.Queue()
+
+    def audio_writer():
+        try:
+            while True:
+                b = audio_bq.get()
+                if b is None:
+                    break
+                _os.write(audio_w, b)
+        except Exception as e:  # noqa: BLE001
+            print(f"[LP-MuseTalk streamq audio ERR] {e}")
+        finally:
+            try:
+                _os.close(audio_w)
+            except Exception:
+                pass
+
+    def _composite(ci, res_frame):
+        x1, y1, x2, y2 = coords[ci]
+        ori = frames[ci].copy()
+        try:
+            # Realtime: INTER_LINEAR (LANCZOS4 dan ~2x tez; realtime'da sifat farqi
+            # deyarli sezilmaydi, lekin per-kadr compositing'ni keskin tezlashtiradi).
+            rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1),
+                            interpolation=cv2.INTER_LINEAR)
+            rf = _sharpen_region(rf, _SHARPEN)
+        except Exception:
+            return None
+        return get_image_blending(ori, rf, [x1, y1, x2, y2], masks[ci], mask_coords[ci])
+
+    def producer():
+        pos = 0
+        last_fr = None
+        try:
+            with _gpu_slot("streamq"), torch.inference_mode():
+                while True:
+                    wav = chunk_queue.get()
+                    if wav is None:
+                        break
+                    if cancel is not None and cancel.is_set():   # barge-in: to'xtatamiz
+                        break
+                    # 1) jumla audiosi → audio yozuvchi thread (quvur orqali ffmpeg'ga)
+                    pcm = _wav_pcm16(wav)
+                    if pcm:
+                        audio_bq.put(pcm)
+                    # 2) jumla kadrlari (kadr sikli `pos`dan davom etadi → bosh sakramaydi)
+                    feats, llen = _audio_processor.get_audio_feature(wav, weight_dtype=_weight_dtype)
+                    wchunks = _audio_processor.get_whisper_chunk(
+                        feats, _device, _weight_dtype, _whisper, llen,
+                        fps=fps, audio_padding_length_left=2, audio_padding_length_right=2,
+                    )
+                    vnum = len(wchunks)
+                    lat = _rotate(latents, pos % n) if n else latents
+                    idx = 0
+                    for wb, lb in datagen(wchunks, lat, _BATCH):
+                        if idx >= vnum:
+                            break
+                        afeat = _pe(wb.to(_device))
+                        lb = lb.to(device=_device, dtype=_unet.model.dtype)
+                        pred = _unet.model(lb, _timesteps, encoder_hidden_states=afeat).sample
+                        pred = pred.to(device=_device, dtype=_vae.vae.dtype)
+                        recon = _vae.decode_latents(pred)
+                        for r in recon:
+                            if idx >= vnum:
+                                break
+                            if cancel is not None and cancel.is_set():
+                                break
+                            ci = (pos + idx) % n
+                            fr = _composite(ci, r)
+                            if fr is not None:
+                                proc.stdin.write(fr.astype(np.uint8).tobytes())
+                                last_fr = fr
+                            idx += 1
+                    if cancel is not None and cancel.is_set():
+                        break
+                    pos += vnum
+            # OG'IZ YUMSHOQ YOPILISHI — faqat oxirida (barge-in bo'lsa o'tkazib yuboramiz).
+            _cx = cancel is not None and cancel.is_set()
+            if last_fr is not None and n and not _cx:
+                n_tail = 7
+                audio_bq.put(b"\x00\x00" * int(16000 * n_tail / fps))   # mos sukunat audio
+                for k in range(1, n_tail + 1):
+                    idle_fr = frames[(pos + k) % n]
+                    alpha = k / (n_tail + 1)
+                    bl = cv2.addWeighted(last_fr, 1.0 - alpha, idle_fr, alpha, 0)
+                    proc.stdin.write(bl.astype(np.uint8).tobytes())
+        except Exception as e:  # noqa: BLE001
+            print(f"[LP-MuseTalk streamq producer ERR] {e}")
+        finally:
+            audio_bq.put(None)          # audio yozuvchi → audio_w'ni yopadi (EOF)
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+
+    threading.Thread(target=audio_writer, daemon=True).start()
+    threading.Thread(target=producer, daemon=True).start()
+    try:
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+        proc.wait()

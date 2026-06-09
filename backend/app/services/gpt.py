@@ -1,5 +1,6 @@
 """GPT javob generatsiyasi + persona/system prompt boshqaruvi."""
 import json as _json
+import logging
 import re as _re
 import threading
 
@@ -7,6 +8,7 @@ from openai import OpenAI
 
 from app.core.config import openai_api_key
 
+log = logging.getLogger(__name__)
 client = OpenAI(api_key=openai_api_key())
 
 
@@ -20,7 +22,7 @@ def embed_texts(texts):
         resp = client.embeddings.create(model="text-embedding-3-small", input=texts)
         return [d.embedding for d in resp.data]
     except Exception as e:  # noqa: BLE001
-        print(f"[embed] xato: {e}")
+        log.warning("[embed] xato: %s", e)
         return []
 
 SYSTEM_PROMPT = """Siz O'zbekiston Temir Yo'llari virtual yordamchisisiz, ismingiz Madina.
@@ -57,6 +59,35 @@ def clear_history(key) -> None:
         return
     with _hist_lock:
         _histories.pop(key, None)
+
+
+def discard_last_turn(key) -> None:
+    """Tarixdagi oxirgi tugallanmagan navbatni olib tashlaydi (gap bo'linganda).
+
+    ask_gpt_stream cancel bo'lsa assistant javobi tarixga YOZILMAYDI (generator
+    to'liq tugamaydi), faqat user xabari qoladi — uni olib tashlaymiz, aks holda
+    avatar javob bermagan savol osilib qoladi."""
+    if key is None:
+        return
+    with _hist_lock:
+        hist = _histories.get(key)
+        if hist and hist[-1].get("role") == "user":
+            hist.pop()
+
+
+def _persist(history_key, role: str, content: str) -> None:
+    """Xabarni doimiy bazaga (SQLite) yozadi. None kalit (normalize/analyze) → skip.
+    Hech qachon suhbatni buzmaydi (xato yutiladi)."""
+    if history_key is None:
+        return
+    try:
+        from app.core.logging import request_id_ctx
+        from app.services import conversations
+        rid = request_id_ctx.get()
+        conversations.record_message(history_key, role, content,
+                                     request_id=None if rid == "-" else rid)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # Javob uzunligi profillari (respLen → ko'rsatma + token chegarasi).
@@ -126,6 +157,8 @@ def ask_gpt(user_message: str, system_prompt: str = SYSTEM_PROMPT,
     hist.append({"role": "assistant", "content": reply})
     if len(hist) > 16:
         del hist[:-16]
+    _persist(history_key, "user", user_message)
+    _persist(history_key, "assistant", reply)
     return reply
 
 
@@ -233,7 +266,7 @@ def analyze_script(text: str, language: str = "uz") -> dict:
         if ft:
             return {"full_text": ft, "segments": segs}
     except Exception as e:  # noqa: BLE001
-        print(f"[analyze_script] fallback (parse xato): {e}")
+        log.warning("[analyze_script] fallback (parse xato): %s", e)
     return {"full_text": normalize_for_tts(text, language), "segments": []}
 
 
@@ -266,3 +299,5 @@ def ask_gpt_stream(user_message: str, system_prompt: str = SYSTEM_PROMPT,
     hist.append({"role": "assistant", "content": reply})
     if len(hist) > 16:
         del hist[:-16]
+    _persist(history_key, "user", user_message)
+    _persist(history_key, "assistant", reply)

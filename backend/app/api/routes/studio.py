@@ -11,10 +11,11 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import require_admin
 from app.core.paths import render_file
-from app.services import render
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
 Admin = Depends(require_admin)
+
+# DIQQAT: `app.services.render` (musetalk/torch) handler ICHIDA import qilinadi.
 
 
 class RenderRequest(BaseModel):
@@ -29,6 +30,7 @@ class RenderRequest(BaseModel):
 
 @router.post("/render")
 def create_render(req: RenderRequest, _: bool = Admin):
+    from app.services import render
     try:
         rid = render.start_render(
             avatar_id=req.avatar_id, text=req.text, voice=req.voice,
@@ -41,16 +43,19 @@ def create_render(req: RenderRequest, _: bool = Admin):
 
 @router.get("/renders")
 def list_renders(_: bool = Admin):
+    from app.services import render
     return {"renders": render.list_renders()}
 
 
 @router.get("/render/{render_id}/status")
 def render_status(render_id: str, _: bool = Admin):
+    from app.services import render
     return render.render_status(render_id)
 
 
 @router.delete("/render/{render_id}")
 def delete_render(render_id: str, _: bool = Admin):
+    from app.services import render
     if not render.delete_render(render_id):
         raise HTTPException(404, "Render topilmadi")
     return {"deleted": render_id}

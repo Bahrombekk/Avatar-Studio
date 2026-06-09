@@ -7,12 +7,16 @@ import { I } from "@/lib/icons";
 import { API } from "@/api/client";
 import { openRealtimeWS } from "@/api/realtime";
 import { useAvatars } from "@/context/AvatarsContext";
+import { useTweaksCtx } from "@/context/TweaksContext";
+import { useT, LANGS } from "@/i18n";
 import type { Avatar } from "@/types/avatar";
 
 type Turn = { role: "user" | "avatar"; text: string; streaming?: boolean };
 
 export function RealtimePage() {
   const { avatars } = useAvatars();
+  const tr = useT();
+  const { t: tweaks, setTweak } = useTweaksCtx();
   const ready = useMemo(() => avatars.filter((a) => a.real), [avatars]);
   const [avatarId, setAvatarId] = useState<string>("");
   const avatar: Avatar | undefined = useMemo(
@@ -36,6 +40,8 @@ export function RealtimePage() {
   const idleRef = useRef<HTMLVideoElement | null>(null);
   const answerRef = useRef<HTMLVideoElement | null>(null);
   const streamAtRef = useRef<number>(0);
+  // Barge-in: eng so'nggi navbat raqami — eski (bo'lib qo'yilgan) javob eventlari e'tiborsiz.
+  const latestTurnRef = useRef<number>(0);
   // Kadr-sinxron handoff: gapirish to'xtaganda idle qaysi kadrda turgani.
   const startFrameRef = useRef<number>(0);
   const answerPlayStartRef = useRef<number>(0);   // javob o'ynashni boshlagan vaqt
@@ -56,8 +62,18 @@ export function RealtimePage() {
       avatar.id,
       avatar.voice || "",
       (type, data) => {
+        // Barge-in turn-filtri: yangi navbat (transcript) raqamini eslab qolamiz;
+        // eski navbatga tegishli (bo'lib qo'yilgan javob) eventlarni e'tiborsiz qoldiramiz.
+        const evTurn = typeof data.turn === "number" ? (data.turn as number) : null;
+        if (type === "transcript" && evTurn != null) latestTurnRef.current = evTurn;
+        else if (evTurn != null && evTurn < latestTurnRef.current) return;
+
         if (type === "listening") setStatus("Tinglanmoqda…");
-        else if (type === "transcript") {
+        else if (type === "canceled") {
+          // Server javobni bo'ldi (barge-in) — holatni tozalaymiz.
+          setBusy(false);
+          setStatus("");
+        } else if (type === "transcript") {
           const t = String(data.text || "");
           if (t) setTurns((p) => [...p, { role: "user", text: t }]);
           setStatus("Javob tayyorlanmoqda…");
@@ -154,8 +170,16 @@ export function RealtimePage() {
     setError("");
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setError("Aloqa yo'q — sahifani yangilang");
+      setError(tr("rt.noConn"));
       return;
+    }
+    // Barge-in: javob hali o'ynayotgan bo'lsa, uni darrov to'xtatib idle'ga qaytamiz.
+    // Server "start"ni implicit barge sifatida qabul qiladi (joriy javobni bekor qiladi);
+    // <video>'ni unmount qilish brauzerdagi oqim GET'ini ham bekor qiladi.
+    if (answerUrl) {
+      window.clearTimeout(fadeTimerRef.current);
+      setAnswerFading(false);
+      setAnswerUrl(null);
     }
     let stream: MediaStream;
     try {
@@ -168,7 +192,7 @@ export function RealtimePage() {
         },
       });
     } catch {
-      setError("Mikrofon ruxsati berilmadi");
+      setError(tr("rt.micDenied"));
       return;
     }
     mediaRef.current = stream;
@@ -250,10 +274,16 @@ export function RealtimePage() {
   return (
     <div className="rt-wrap">
       <div className="rt-top">
-        <div className="rt-brand"><I.layers size={18} /> Avatar Studio · <span>Jonli suhbat</span></div>
+        <div className="rt-brand"><I.layers size={18} /> Avatar Studio · <span>{tr("app.live")}</span></div>
         <div className="rt-top-r">
           <span className={"rt-dot" + (connected ? " on" : "")} />
-          <span className="rt-conn">{connected ? "Ulangan" : "Ulanmoqda…"}</span>
+          <span className="rt-conn">{connected ? tr("conn.connected") : tr("conn.connecting")}</span>
+          <select className="rt-select" value={tweaks.uiLang as string}
+            onChange={(e) => setTweak("uiLang", e.target.value)} aria-label="Til / Language">
+            {LANGS.map((l) => (
+              <option key={l.id} value={l.id}>{l.label}</option>
+            ))}
+          </select>
           {ready.length > 0 && (
             <select className="rt-select" value={avatar?.id || ""}
               onChange={(e) => setAvatarId(e.target.value)}>
@@ -268,8 +298,8 @@ export function RealtimePage() {
       {!avatar ? (
         <div className="rt-empty">
           <I.bolt size={28} />
-          <div>Ovozli suhbat uchun <b>modeli tayyor</b> avatar kerak.</div>
-          <div className="rt-empty-sub">Avatar yarating → Idle + Artefakt quring.</div>
+          <div>{tr("rt.needReady")}</div>
+          <div className="rt-empty-sub">{tr("rt.needReadySub")}</div>
         </div>
       ) : (
         <div className="rt-stage">
@@ -316,7 +346,7 @@ export function RealtimePage() {
             {(recording || busy) && (
               <div className={"rt-state " + (recording ? "listen" : "think")}>
                 <span className="rt-state-ind" />
-                {recording ? "Tinglayapman…" : "O'ylayapman…"}
+                {recording ? tr("rt.listeningShort") : tr("rt.thinkingShort")}
               </div>
             )}
             <div className="rt-name">{avatar.name}<small>{avatar.role}</small></div>
@@ -326,11 +356,11 @@ export function RealtimePage() {
           <div className="rt-side">
             <div className="rt-log">
               {turns.length === 0 && (
-                <div className="rt-hint">Mikrofon tugmasini bosib gapiring — gapirib bo'lgach o'zi to'xtaydi.</div>
+                <div className="rt-hint">{tr("rt.hint")}</div>
               )}
               {turns.map((t, i) => (
                 <div key={i} className={"rt-turn " + t.role}>
-                  <span className="rt-turn-who">{t.role === "user" ? "Siz" : avatar.name}</span>
+                  <span className="rt-turn-who">{t.role === "user" ? tr("you") : avatar.name}</span>
                   <span className="rt-turn-text">{t.text}</span>
                 </div>
               ))}
@@ -355,7 +385,7 @@ export function RealtimePage() {
             <button className={"rt-mic" + (recording ? " rec" : "")} onClick={toggleMic}
               disabled={busy && !recording}>
               <I.mic size={20} />
-              {recording ? "Tinglanmoqda… (to'xtatish)" : busy ? "O'ylanmoqda…" : "Gapirish"}
+              {recording ? tr("rt.stop") : busy ? tr("rt.thinking") : tr("rt.speak")}
             </button>
             <div className="rt-tip">Yandex streaming STT · {avatar.language?.toUpperCase()}</div>
           </div>

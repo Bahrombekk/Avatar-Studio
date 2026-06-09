@@ -13,6 +13,7 @@ Eslatma: talking-head VIDEO faqat `madina_lp` artefakti uchun mavjud.
 Boshqa avatarlar shu yuzni ulashadi, lekin OVOZ + PERSONALITY har avatarga xos.
 """
 import json
+import logging
 import threading
 from datetime import datetime, timezone, timedelta
 
@@ -24,6 +25,7 @@ from app.core.paths import (
     avatar_events_file,
 )
 
+log = logging.getLogger(__name__)
 _lock = threading.RLock()
 
 # stats.json ga ketadigan maydonlar (qolgan hammasi avatar.json — konfiguratsiya).
@@ -325,7 +327,13 @@ def _bump_stats(avatar_id, total, cached):
 
 
 # ── Analitika ──
-def log_event(avatar_id, query, cached, gpt=0, tts=0, video=0, total=0):
+def log_event(avatar_id, query, cached, gpt=0, tts=0, video=0, total=0,
+              *, request_id=None, session_id=None, error=None, stage=None):
+    """Suhbat hodisasini events.jsonl ga yozadi + jonli statistikani yangilaydi.
+
+    request_id/session_id loglar bilan bog'lash uchun; error/stage muvaffaqiyatsiz
+    quvur uchun (xato darajasini analytics()'da ko'rsatish mumkin).
+    """
     aid = avatar_id or "madina_lp"
     ev = {
         "ts": _now_iso(),
@@ -335,6 +343,14 @@ def log_event(avatar_id, query, cached, gpt=0, tts=0, video=0, total=0):
         "gpt": round(gpt, 3), "tts": round(tts, 3),
         "video": round(video, 3), "total": round(total, 3),
     }
+    if request_id:
+        ev["request_id"] = request_id
+    if session_id:
+        ev["session_id"] = session_id
+    if error:
+        ev["error"] = str(error)[:500]
+    if stage:
+        ev["stage"] = stage
     with _lock:
         path = avatar_events_file(aid)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -343,7 +359,7 @@ def log_event(avatar_id, query, cached, gpt=0, tts=0, video=0, total=0):
         try:
             _bump_stats(aid, total, cached)
         except Exception as e:
-            print(f"[avatar_store] stat yangilash xato: {e}")
+            log.warning("stat yangilash xato: %s", e)
 
 
 def _read_events_for(avatar_id):

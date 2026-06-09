@@ -7,7 +7,6 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { EditorPage } from "@/pages/EditorPage";
 import { ConversationsPage } from "@/pages/ConversationsPage";
-import { UsersPage } from "@/pages/UsersPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { PreviewPage } from "@/pages/PreviewPage";
 import { VideoStudioPage } from "@/pages/VideoStudioPage";
@@ -30,7 +29,6 @@ export const router = createBrowserRouter(
         { path: "canned", element: <CannedPage /> },
         { path: "editor/:id", element: <EditorPage /> },
         { path: "conversations", element: <ConversationsPage /> },
-        { path: "users", element: <UsersPage /> },
         { path: "settings", element: <SettingsPage /> },
         { path: "preview", element: <PreviewPage /> },
         { path: "preview/:id", element: <PreviewPage /> },

@@ -1,0 +1,16 @@
+.git
+**/__pycache__
+**/*.pyc
+backend/.venv
+backend/data
+frontend/node_modules
+frontend/dist
+models
+envs
+*.mp4
+*.pt
+*.pth
+*.onnx
+*.safetensors
+.env
+backend/.env

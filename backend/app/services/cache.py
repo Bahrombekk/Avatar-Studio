@@ -15,6 +15,7 @@ Bosqichlar:
 """
 import hashlib
 import json
+import logging
 import re
 import shutil
 import threading
@@ -22,6 +23,8 @@ import time
 from typing import Optional, Dict, Any, List
 
 from app.core.paths import DEFAULT_SCOPE, voice_cache_file, voice_videos_dir
+
+log = logging.getLogger(__name__)
 
 
 def _normalize(query: str) -> str:
@@ -80,9 +83,9 @@ class ResponseCache:
             self.entries = data.get("entries", [])
             if self.entries:
                 self._last_entry = self.entries[-1]
-            print(f"[Cache] {self.scope}/{self.voice}: {len(self.entries)} ta entry yuklandi")
+            log.info("[cache] %s/%s: %d ta entry yuklandi", self.scope, self.voice, len(self.entries))
         except Exception as e:
-            print(f"[Cache WARN] {self.scope}/{self.voice} yuklab bo'lmadi: {e}")
+            log.warning("[cache] %s/%s yuklab bo'lmadi: %s", self.scope, self.voice, e)
 
     def _save(self):
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,7 +119,7 @@ class ResponseCache:
             # Video FAQAT BIR MARTA saqlanadi — tmp dan ko'chiramiz (nusxa emas).
             shutil.move(str(video_src_path), str(cached_video))
         except Exception as e:
-            print(f"[Cache ERR] video move fail: {e}")
+            log.error("[cache] video move fail: %s", e)
             return None
 
         entry = {
@@ -145,7 +148,7 @@ class ResponseCache:
             self._last_entry = entry
             self._save()
 
-        print(f"[Cache ADD] {self.scope}/{self.voice} id={entry_id} q='{query[:40]}'")
+        log.info("[cache] add %s/%s id=%s q='%s'", self.scope, self.voice, entry_id, query[:40])
         return entry
 
     def get_last_entry(self) -> Optional[Dict[str, Any]]:

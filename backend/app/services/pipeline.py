@@ -4,6 +4,7 @@ Avatar = madina_lp (real artefakt). Kesh har (avatar, ovoz) juftligiga alohida.
 Video FAQAT bir marta saqlanadi: MuseTalk tmp'ga yozadi → kesh uni o'z papkasiga
 ko'chiradi (move). Serv qiluvchi nusxa yo'q.
 """
+import logging
 import os
 import time
 import uuid
@@ -13,6 +14,8 @@ from app.services.cache import get_cache, is_repeat_request
 from app.services.gpt import ask_gpt, build_system_prompt, SYSTEM_PROMPT
 from app.services.musetalk import musetalk_infer, use_max_dim
 from app.services.tts import tts, DEFAULT_VOICE
+
+log = logging.getLogger(__name__)
 
 
 def _avatar_params(avatar):
@@ -24,6 +27,22 @@ def _avatar_params(avatar):
     temp = float(avatar.get("temperature", 0.4))
     fps = int(avatar.get("fps", 25)) or 25
     return sp, temp, mt, fps, avatar.get("id")
+
+
+def _augment_prompt(system_prompt: str, avatar_id, user_message: str) -> str:
+    """Bilim bazasidan (RAG) mos bo'laklarni topib, system prompt'ga qo'shadi.
+
+    Xato/bo'sh bo'lsa o'zgarmagan system_prompt qaytadi (degradatsiya)."""
+    if not avatar_id:
+        return system_prompt
+    try:
+        from app.services import knowledge
+        hits = knowledge.retrieve(avatar_id, user_message)
+        block = knowledge.build_context_block(hits)
+        return system_prompt + "\n\n" + block if block else system_prompt
+    except Exception as e:  # noqa: BLE001
+        log.warning("[rag] augment xato: %s", e)
+        return system_prompt
 
 
 def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = None) -> dict:
@@ -51,22 +70,23 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
                 "cached": True, "cache_id": hit["id"]}
 
     sid = str(uuid.uuid4())[:8]
+    system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
 
     t1 = time.time()
     reply = ask_gpt(user_message, system_prompt=system_prompt,
                     temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
     t_gpt = round(time.time() - t1, 2)
-    print(f"[GPT] {t_gpt}s → {reply[:60]}")
+    log.info("[gpt] %ss → %s", t_gpt, reply[:60])
 
     t2 = time.time()
     wav_path = str(TEMP_DIR / f"{sid}.wav")
     try:
         tts(reply, wav_path, voice=voice)
     except Exception as e:
-        print(f"[TTS XATO] {voice}: {e}")
+        log.error("[tts] %s: %s", voice, e)
         return {"error": f"Ovoz ({voice}) xatosi: {e}"}
     t_tts = round(time.time() - t2, 2)
-    print(f"[TTS] {t_tts}s ({voice})")
+    log.info("[tts] %ss (%s)", t_tts, voice)
 
     t3 = time.time()
     linux_mp4 = str(VID_OUT_DIR / f"{sid}.mp4")
@@ -75,13 +95,13 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
     if os.path.exists(wav_path):
         os.remove(wav_path)
     t_mt = round(time.time() - t3, 2)
-    print(f"[LP-MuseTalk] {t_mt}s")
+    log.info("[musetalk] %ss", t_mt)
 
     if not ok:
         return {"error": "MuseTalk xato"}
 
     t_total = round(time.time() - t0, 2)
-    print(f"[Jami] {t_total}s")
+    log.info("[pipeline] jami %ss", t_total)
 
     # Video keshga KO'CHIRILADI (linux_mp4 endi mavjud bo'lmaydi).
     entry = cache.add(query=ckey, response=reply,
@@ -124,6 +144,7 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
         return
 
     sid = str(uuid.uuid4())[:8]
+    system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
 
     t1 = time.time()
     reply = ask_gpt(user_message, system_prompt=system_prompt,
@@ -136,7 +157,7 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
     try:
         tts(reply, wav_full, voice=voice)
     except Exception as e:
-        print(f"[TTS XATO] {voice}: {e}")
+        log.error("[tts] %s: %s", voice, e)
         yield {"type": "error", "message": f"Ovoz ({voice}) xatosi: {e}"}
         return
     t_tts = round(time.time() - t2, 2)

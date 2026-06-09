@@ -39,7 +39,7 @@ export function screenToPath(route: Route): string {
 export function pathToRoute(pathname: string): Route {
   if (pathname === "/" || pathname === "") return { screen: "realtime" };
   // /admin va /admin/... ni normallashtiramiz
-  let p = pathname.replace(/^\/admin\/?/, "");
+  const p = pathname.replace(/^\/admin\/?/, "");
   if (p === "") return { screen: "dashboard" };
   if (p.startsWith("editor/")) {
     return { screen: "editor", id: p.slice("editor/".length) };

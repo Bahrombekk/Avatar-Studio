@@ -10,7 +10,11 @@ def require_admin(authorization: str = Header(default="")):
     """Admin endpointlari uchun: Authorization: Bearer <token> tekshiriladi.
 
     Public (user) endpointlarda ishlatilmaydi. Token noto'g'ri → 401.
+    Sof lokal foydalanish uchun AUTH_DISABLED=1 bilan tekshiruvni o'chirish mumkin.
     """
+    from app.core.config import get_settings
+    if get_settings().AUTH_DISABLED:
+        return True
     token = authorization[7:] if authorization.lower().startswith("bearer ") else authorization
     if not verify_token(token):
         raise HTTPException(401, "Avtorizatsiya talab qilinadi")

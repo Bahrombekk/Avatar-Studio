@@ -13,18 +13,26 @@ Admin (Authorization: Bearer <token>, /api/auth/login orqali):
 SPA endi ROOT '/' da: '/' = user, '/admin/*' = panel (login bilan).
 Ishga tushirish: bash run.sh
 """
+import logging
+import os
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routes import analytics, auth, avatars, canned, chat, studio, system
-from app.core.paths import FRONTEND_DIST, STATIC_DIR
+from app.api.routes import (
+    analytics, auth, avatars, canned, chat, conversations, knowledge, studio, system,
+)
+from app.core.paths import FRONTEND_DIST
 from app.realtime.ws import router as realtime_router
-from app.services.musetalk import preload_artifact, warmup
+
+# DIQQAT: `app.services.musetalk` (torch/cv2/og'ir ML) MODUL YUQORISIDA import
+# QILINMAYDI — faqat lifespan ichidagi fon thread'da (warmup paytida). Bu `create_app()`
+# ni og'ir bog'liqliklarsiz import qilish imkonini beradi (test/CI yengil muhitda).
+
+log = logging.getLogger("app.main")
 
 
 class SPAStaticFiles(StaticFiles):
@@ -48,10 +56,13 @@ class SPAStaticFiles(StaticFiles):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startupda model yuklash + warmup (birinchi so'rov tez bo'lsin).
+    # AVATAR_STUDIO_SKIP_WARMUP=1 → og'ir model yuklashni o'tkazib yuborish (test/CI).
     def _bg():
         try:
+            # Og'ir importlar shu yerda (modul yuqorisida emas) — yengil muhitda import bezovta qilmaydi.
+            from app.services.musetalk import preload_artifact, warmup
             warmup()
-            # Real avatarlar artefaktini (200 kadr/mask) keshга oldindan yuklaymiz —
+            # Real avatarlar artefaktini (200 kadr/mask) keshga oldindan yuklaymiz —
             # foydalanuvchining BIRINCHI savoli sekin bo'lmasligi uchun.
             try:
                 from app.services import avatar_store, musetalk
@@ -60,15 +71,27 @@ async def lifespan(app: FastAPI):
                         # Native + ishlatiladigan (kichraytirilgan) variantni isitamiz.
                         preload_artifact(av["id"], musetalk.use_max_dim(av))
             except Exception as e:
-                print(f"[server] artefakt preload xato: {e}")
+                log.warning("artefakt preload xato: %s", e)
         except Exception as e:
-            print(f"[server] warmup xato: {e}")
-    threading.Thread(target=_bg, daemon=True).start()
+            log.warning("warmup xato: %s", e)
+
+    if os.environ.get("AVATAR_STUDIO_SKIP_WARMUP", "").strip() not in ("1", "true", "True"):
+        threading.Thread(target=_bg, daemon=True).start()
+    else:
+        log.info("warmup o'tkazib yuborildi (AVATAR_STUDIO_SKIP_WARMUP)")
     yield
 
 
 def create_app() -> FastAPI:
+    from app.core.config import get_settings
+    from app.core.logging import configure_logging
+    from app.core.middleware import RequestIDMiddleware
+
+    settings = get_settings()
+    configure_logging(settings.LOG_LEVEL, settings.LOG_FORMAT)
+
     app = FastAPI(title="Madina Avatar (LP-MuseTalk)", lifespan=lifespan)
+    app.add_middleware(RequestIDMiddleware)
 
     app.include_router(auth.router)        # /api/auth/login, /check
     app.include_router(chat.router)
@@ -77,6 +100,8 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(studio.router)      # /api/studio (Video Studiya — offline render)
     app.include_router(canned.router)      # /api/canned (tayyor javoblar — pre-rendered Q&A)
+    app.include_router(knowledge.router)   # /api/avatars/{id}/knowledge (RAG bilim bazasi)
+    app.include_router(conversations.router)  # /api/conversations (suhbat tarixi)
     app.include_router(realtime_router)    # /api/realtime/ws (alohida modul)
 
     # SPA — endi ROOT '/' da: '/' = public real-time (user), '/admin/*' = panel (login).
@@ -86,8 +111,8 @@ def create_app() -> FastAPI:
         app.mount("/", SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
                   name="spa")
     else:
-        print(f"[server] OGOHLANTIRISH: frontend build yo'q ({FRONTEND_DIST}). "
-              f"`cd frontend && npm install && npm run build` ishga tushiring.")
+        log.warning("frontend build yo'q (%s). `cd frontend && npm install && npm run build` ishga tushiring.",
+                    FRONTEND_DIST)
 
     return app
 

@@ -9,8 +9,7 @@ const NAV = [
   { id: "studio", label: "Video Studiya", icon: "play" },
   { id: "canned", label: "Tayyor javoblar", icon: "bolt" },
   { id: "analytics", label: "Analitika", icon: "chart" },
-  { id: "conversations", label: "Suhbatlar", icon: "chat", flag: "conversations" },
-  { id: "users", label: "Foydalanuvchilar", icon: "users", flag: "users" },
+  { id: "conversations", label: "Suhbatlar", icon: "chat" },
   { id: "settings", label: "Sozlamalar", icon: "settings", flag: "settings" },
 ];
 

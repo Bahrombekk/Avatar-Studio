@@ -3,6 +3,7 @@
 export interface Tweaks {
   theme: string;
   fontSet: string;
+  uiLang: string; // interfeys tili: "uz" | "ru" | "en"
   secConversations: boolean;
   secUsers: boolean;
   secSettings: boolean;

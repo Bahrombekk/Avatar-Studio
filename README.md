@@ -38,12 +38,44 @@ To'liq qo'llanma → [SETUP.md](SETUP.md).
 
 | Endpoint | Tavsif |
 |----------|--------|
-| `GET /studio`        | Admin panel (Vite build) |
+| `GET /studio`        | Admin panel (Vite + React + TypeScript build) |
 | `POST /chat-stream`  | SSE oqimi: `text` → `tts_done` → `video` → `done` |
+| `WS /api/realtime/ws`| Real-time ovozli suhbat (streaming STT → video) |
 | `GET /api/avatars`   | Avatarlar CRUD |
+| `… /api/avatars/{id}/knowledge` | **RAG bilim bazasi** (hujjat/FAQ → grounded javob) |
+| `GET /api/conversations` | Saqlangan suhbat transkriptlari (SQLite) |
+| `… /api/studio`, `/api/canned` | Video Studiya (offline HD) + Tayyor javoblar |
 | `GET /api/analytics` | Real analitika (`events.jsonl` dan) |
 | `GET /voices`        | Mavjud TTS ovozlari |
 | `GET /health`        | Model/kalit/kesh holati |
+| `GET /metrics`       | Process metrikalari (so'rov soni, p50/p95 latency, xato) |
+
+Har so'rov `X-Request-ID` oladi va strukturali (JSON) log qatori yoziladi.
+
+## Testlar va CI
+
+```bash
+# Backend (yengil deps — torch/musetalk SHART EMAS)
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+pytest                       # ilova qatlami: auth, config, cache, RAG, suhbat, API
+
+# Frontend
+cd frontend
+npm run typecheck && npm run lint && npm test && npm run build
+```
+
+CI: `.github/workflows/ci.yml` — har PR'da frontend + backend testlari (GPU'siz).
+
+## Docker (ilova qatlami)
+
+```bash
+docker compose up --build       # → http://localhost:8100/studio
+```
+
+> To'liq GPU lip-sync inference og'ir ML bog'liqliklari + NVIDIA runtime + `models/`
+> hajmini talab qiladi — `Dockerfile` izohlariga qarang. Bu image API/panel va
+> torch'siz qismlarni beradi.
 
 ## Eslatmalar
 

@@ -13,6 +13,7 @@ const EDITOR_TABS = [
   { id: "persona", label: "Personality", icon: "message" },
   { id: "motion", label: "Idle & Lip-sync", icon: "sliders" },
   { id: "sugg", label: "Tezkor javoblar", icon: "bolt" },
+  { id: "knowledge", label: "Bilim bazasi", icon: "layers" },
   { id: "brand", label: "Brending", icon: "palette" },
 ];
 
@@ -157,6 +158,7 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
               onBuildIdle={startBuildIdle} onBuildMusetalk={startBuildMusetalk}
               onBuildMotion={startBuildMotion} />}
             {tab === "sugg"     && <TabSugg draft={draft} set={set} />}
+            {tab === "knowledge" && <TabKnowledge draft={draft} />}
             {tab === "brand"    && <TabBrand draft={draft} set={set} setP={setP} />}
           </div>
         </div>
@@ -462,6 +464,91 @@ function TabSugg({ draft, set }) {
         ))}
       </div>
       <Btn kind="ghost" icon="plus" onClick={add}>Tavsiya qo‘shish</Btn>
+    </Section>
+  );
+}
+
+/* ── Tab: Bilim bazasi (RAG) ── */
+function TabKnowledge({ draft }) {
+  const savedId = draft.id && draft.id !== "new" ? draft.id : null;
+  const [sources, setSources] = useState([]);
+  const [faqs, setFaqs] = useState([]);
+  const [q, setQ] = useState("");
+  const [a, setA] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const fileRef = useRef(null);
+
+  const reload = () => {
+    if (!savedId) return;
+    API.knowledgeList(savedId)
+      .then((d) => { setSources(d.sources || []); setFaqs(d.faqs || []); })
+      .catch(() => {});
+  };
+  useEffect(reload, [savedId]);
+
+  const onFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f || !savedId) return;
+    setBusy(true); setErr("");
+    try { await API.knowledgeUpload(savedId, f); reload(); }
+    catch (ex) { setErr(ex.message || "yuklanmadi"); }
+    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+
+  const addFaq = async () => {
+    if (!savedId || !q.trim() || !a.trim()) return;
+    setBusy(true); setErr("");
+    try { await API.knowledgeAddFaq(savedId, q.trim(), a.trim()); setQ(""); setA(""); reload(); }
+    catch (ex) { setErr(ex.message || "qo'shilmadi"); }
+    finally { setBusy(false); }
+  };
+
+  if (!savedId) {
+    return (
+      <Section title="Bilim bazasi" desc="Avatar javoblarini hujjat/FAQ bilan asoslash (RAG).">
+        <p className="ed-hint">Bilim qo‘shish uchun avval avatarni saqlang.</p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title="Bilim bazasi" desc="Avatar faqat shu ma'lumotga tayanib javob beradi (to‘qib chiqarmaydi).">
+      {err && <p className="ed-err">{err}</p>}
+
+      <div className="ed-kn-block">
+        <h4>Hujjatlar (.txt / .md)</h4>
+        <input ref={fileRef} type="file" accept=".txt,.md,.markdown" onChange={onFile} disabled={busy} />
+        <ul className="ed-kn-list">
+          {sources.map((s) => (
+            <li key={s.id}>
+              <span>{s.name} <em>({s.n_chunks} bo‘lak)</em></span>
+              <button className="ed-sugg-rm" onClick={async () => { await API.knowledgeDeleteSource(savedId, s.id); reload(); }}>
+                <I.x size={15} />
+              </button>
+            </li>
+          ))}
+          {!sources.length && <li className="ed-kn-empty">Hujjat yo‘q</li>}
+        </ul>
+      </div>
+
+      <div className="ed-kn-block">
+        <h4>FAQ (savol–javob)</h4>
+        <input className="as-field" value={q} placeholder="Savol…" onChange={(e) => setQ(e.target.value)} />
+        <textarea className="as-field" value={a} placeholder="Javob…" rows={2} onChange={(e) => setA(e.target.value)} />
+        <Btn kind="ghost" icon="plus" onClick={addFaq} disabled={busy || !q.trim() || !a.trim()}>FAQ qo‘shish</Btn>
+        <ul className="ed-kn-list">
+          {faqs.map((f) => (
+            <li key={f.id}>
+              <span><strong>{f.q}</strong> — {f.a}</span>
+              <button className="ed-sugg-rm" onClick={async () => { await API.knowledgeDeleteFaq(savedId, f.id); reload(); }}>
+                <I.x size={15} />
+              </button>
+            </li>
+          ))}
+          {!faqs.length && <li className="ed-kn-empty">FAQ yo‘q</li>}
+        </ul>
+      </div>
     </Section>
   );
 }
