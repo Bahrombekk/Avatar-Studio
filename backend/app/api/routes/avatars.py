@@ -19,8 +19,7 @@ router = APIRouter(prefix="/api/avatars", tags=["avatars"])
 # Admin himoyasi (yozish/qurish endpointlari uchun). GET (o'qish) public qoladi.
 Admin = Depends(require_admin)
 
-# Yuklash chegaralari.
-MAX_PHOTO_BYTES = 12 * 1024 * 1024          # 12 MB
+# Ruxsat etilgan rasm turlari (hajm chegarasi yo'q — endpoint admin himoyasida).
 ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
@@ -73,8 +72,6 @@ async def upload_photo(avatar_id: str, file: UploadFile = File(...), _: bool = A
         raise HTTPException(415, "Faqat JPG, PNG yoki WebP rasm qabul qilinadi")
 
     data = await file.read()
-    if len(data) > MAX_PHOTO_BYTES:
-        raise HTTPException(413, f"Rasm juda katta (maksimum {MAX_PHOTO_BYTES // (1024 * 1024)} MB)")
 
     from app.services import face
     result = face.validate_portrait(data)

@@ -23,6 +23,12 @@ export MT_DIR="${MT_DIR:-$ROOT/models/MuseTalk}"
 export LP_DIR="${LP_DIR:-$ROOT/models/LivePortrait}"
 export PYTHONPATH="$MT_DIR:${PYTHONPATH:-}"
 
+# ── Real-time: JUMLA-DARAJALI OQIM (call-ai uslubi) ──
+# GPT jumla yozishi bilanoq o'sha jumlani TTS qiladi va videoga uzatadi — TTS
+# GPT bilan PARALLEL ketadi, birinchi ovoz/video ~1-2s da chiqadi (butun javob
+# TTS tugashini kutmaydi). O'chirish: RT_SENTENCE_STREAM=0.
+export RT_SENTENCE_STREAM="${RT_SENTENCE_STREAM:-1}"
+
 # ── CUDA kutubxonalari (bundle qilingan muhit ichidan, versiyadan mustaqil) ──
 NVIDIA_ROOT=$(echo "$ENV_DIR"/lib/python*/site-packages/nvidia 2>/dev/null | awk '{print $1}')
 if [ -d "$NVIDIA_ROOT" ]; then
@@ -54,12 +60,29 @@ fi
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8100}"
+
+# ── HTTPS (mikrofon LAN'dan ishlashi uchun SHART: brauzer getUserMedia'ni
+#    faqat HTTPS yoki localhost'da beradi). certs/ mavjud bo'lsa avtomatik yoqiladi.
+#    O'chirish: HTTPS=0 bash run.sh ──
+SSL_ARGS=()
+SCHEME="http"
+CERT="$BASE/certs/cert.pem"
+KEY="$BASE/certs/key.pem"
+if [ "${HTTPS:-1}" != "0" ] && [ -f "$CERT" ] && [ -f "$KEY" ]; then
+    SSL_ARGS=(--ssl-certfile "$CERT" --ssl-keyfile "$KEY")
+    SCHEME="https"
+fi
+
 echo "============================================"
 echo "  Avatar Studio backend"
 echo "  Muhit : $ENV_DIR"
-echo "  URL    : http://localhost:$PORT"
-echo "  Studio : http://localhost:$PORT/studio"
+echo "  Public : $SCHEME://localhost:$PORT/           (ovozli suhbat, loginsiz)"
+echo "  Admin  : $SCHEME://localhost:$PORT/admin      (panel, login)"
+echo "  Studio : $SCHEME://localhost:$PORT/admin/studio"
+if [ "$SCHEME" = "https" ]; then
+    echo "  HTTPS  : YOQILGAN (mikrofon LAN'da ishlaydi; o'z-imzoli sertifikat — brauzer ogohlantirishini qabul qiling)"
+fi
 echo "============================================"
 
 cd "$BASE"
-exec "$PYTHON" -m uvicorn app.main:app --host "$HOST" --port "$PORT" --app-dir "$BASE"
+exec "$PYTHON" -m uvicorn app.main:app --host "$HOST" --port "$PORT" --app-dir "$BASE" "${SSL_ARGS[@]}"

@@ -91,7 +91,21 @@ class StreamingSTT:
 
     # ── ichki ──
     def _requests(self):
-        # 1) Sessiya sozlamalari (real-time, LINEAR16_PCM 16k mono, til).
+        # 1) Sessiya sozlamalari (LINEAR16_PCM 16k mono, til).
+        # Audio ishlash rejimi: FULL_DATA (default) — butun gapni yaxlit qayta ishlaydi,
+        # REAL_TIME'dan ANIQROQ (O'zbek uchun kamroq xato); jonli partial kamroq bo'ladi,
+        # lekin yakuniy matn to'g'riroq. STT_MODE=realtime bilan eski (tezroq) rejimga qaytadi.
+        import os as _os
+        _mode = _os.environ.get("STT_MODE", "full").strip().lower()
+        _apt = (stt_pb2.RecognitionModelOptions.REAL_TIME if _mode == "realtime"
+                else stt_pb2.RecognitionModelOptions.FULL_DATA)
+        # Matn normalizatsiyasi: literature_text=True → adabiy/tozaroq, to'g'ri
+        # tinish belgili matn (final VA final_refinement sifatini oshiradi, tekin).
+        _text_norm = stt_pb2.TextNormalizationOptions(
+            text_normalization=stt_pb2.TextNormalizationOptions.TEXT_NORMALIZATION_ENABLED,
+            profanity_filter=False,
+            literature_text=True,
+        )
         opts = stt_pb2.StreamingOptions(
             recognition_model=stt_pb2.RecognitionModelOptions(
                 audio_format=stt_pb2.AudioFormatOptions(
@@ -101,13 +115,23 @@ class StreamingSTT:
                         audio_channel_count=1,
                     )
                 ),
+                text_normalization=_text_norm,
                 language_restriction=stt_pb2.LanguageRestrictionOptions(
                     restriction_type=stt_pb2.LanguageRestrictionOptions.WHITELIST,
                     language_code=[self._lang],
                 ),
-                audio_processing_type=stt_pb2.RecognitionModelOptions.REAL_TIME,
+                audio_processing_type=_apt,
             )
         )
+        # EOU (gap tugashi) klassifikatori — IXTIYORIY (STT_EOU=default|high).
+        # Bizda "gapir" tugmasi (push-to-talk) mijoz tomondan gap chegarasini beradi,
+        # shuning uchun default O'CHIQ: server-side HIGH sezuvchanlik gap o'rtasidagi
+        # pauzada matnni erta uzib qo'yishi mumkin. Kerak bo'lsa env bilan yoqiladi.
+        _eou = _os.environ.get("STT_EOU", "").strip().lower()
+        if _eou in ("default", "high"):
+            _sens = (stt_pb2.DefaultEouClassifier.HIGH if _eou == "high"
+                     else stt_pb2.DefaultEouClassifier.DEFAULT)
+            opts.eou_classifier.default_classifier.type = _sens
         yield stt_pb2.StreamingRequest(session_options=opts)
         # 2) Audio bo'laklari (navbatdan).
         while True:

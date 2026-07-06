@@ -294,8 +294,14 @@ def _fmt_date(d: str) -> str:
 def _format(params: dict, trains: list, dep_name: str, arv_name: str) -> str:
     """Topilgan poyezdlarni system-prompt uchun MA'LUMOT bloki qiladi."""
     date = params.get("date", "")
-    head = (f"JONLI TEMIR YO'L MA'LUMOTI ({dep_name} → {arv_name}, {date}) — "
-            f"FAQAT shu ma'lumotga tayan, narxlarni o'zgartirma, so'mda ayt:")
+    head = (f"JONLI TEMIR YO'L MA'LUMOTI ({dep_name} → {arv_name}, {date}) — FAQAT shu "
+            f"ma'lumotga tayan, narxlarni o'zgartirma, so'mda ayt.\n"
+            f"JAVOB QOIDASI (ovoz uchun — MUHIM): QISQA va TUGALLANGAN javob ber. "
+            f"Markdown, yulduzcha (*) yoki raqamli ro'yxat ISHLATMA — oddiy og'zaki gaplar. "
+            f"Hamma poyezdni sanab ketma: eng mos 2-3 poyezdni qisqa ayt (nomi + jo'nash "
+            f"vaqti + eng arzon narx yoki bo'sh joy holati). So'ng \"to'liq jadval va "
+            f"narxlarni eticket.railway.uz saytidan ko'rasiz\" deb yo'naltir va qaysi "
+            f"poyezd yoki vaqt qiziqtirishini so'rab, suhbatni davom ettir:")
     if not trains:
         return head + f"\n- Bu sana/yo'nalishda poyezd topilmadi."
     lines = [head]

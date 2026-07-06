@@ -25,7 +25,11 @@ VOICES = {
     "nigora": {"provider": "yandex", "voice": "nigora", "lang": "uz-UZ",
                "label": "Nigora (Yandex)", "speed": 0.95, "smooth_af": _YX_SMOOTH},
     "yulduz": {"provider": "yandex_v3", "voice": "yulduz",
-               "label": "Yulduz (Yandex)", "speed": 0.97, "smooth_af": _YX_SMOOTH},
+               "label": "Yulduz (Yandex)", "speed": 0.97, "smooth_af": _YX_SMOOTH,
+               # Yandex v3 emotsiya/uslub — yulduz qo'llaydi: neutral|strict|friendly|whisper.
+               # "friendly" = iliq, jonli ohang (jalb qiluvchi yordamchi uchun).
+               # O'chirish/o'zgartirish: env YULDUZ_ROLE (bo'sh = role yubormaydi).
+               "role": os.environ.get("YULDUZ_ROLE", "friendly").strip() or None},
     # ── Rus ──
     "ru_dmitry":   {"provider": "edge", "voice": "ru-RU-DmitryNeural",   "label": "Dmitriy (edge)"},
     "ru_svetlana": {"provider": "edge", "voice": "ru-RU-SvetlanaNeural", "label": "Svetlana (edge)"},
@@ -131,6 +135,7 @@ def _yx_auth_folder():
 
 
 def _tts_yandex(text: str, tmp_path: str, voice_id: str, lang: str = "uz-UZ", speed: float = 1.0):
+    import http.client
     import urllib.request
     import urllib.parse
     import urllib.error
@@ -148,66 +153,95 @@ def _tts_yandex(text: str, tmp_path: str, voice_id: str, lang: str = "uz-UZ", sp
             with urllib.request.urlopen(req, timeout=30) as resp:
                 audio = resp.read()
             break
+        except http.client.IncompleteRead as e:
+            # Javob Content-Length'ni to'g'ri yopmasa — o'qilgan qism to'liq audio.
+            audio = e.partial
+            break
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "replace")[:300]
             raise RuntimeError(f"Yandex TTS {e.code}: {body}") from None
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+        except (urllib.error.URLError, TimeoutError, OSError,
+                http.client.HTTPException) as e:
             last_err = e
             time.sleep(0.6 * (attempt + 1))
-    if audio is None:
+    if not audio:
         raise RuntimeError(f"Yandex TTS tarmoq xatosi (3 urinish): {last_err}")
     with open(tmp_path, "wb") as f:
         f.write(audio)
 
 
-def _tts_yandex_v3(text: str, tmp_path: str, voice_id: str, speed: float = 1.0):
-    """Yandex SpeechKit v3 (yulduz kabi yangi ovozlar shu yerda)."""
+def _tts_yandex_v3(text: str, tmp_path: str, voice_id: str, speed: float = 1.0,
+                   role: str = None, pitch: float = 0.0):
+    """Yandex SpeechKit v3 (yulduz kabi yangi ovozlar shu yerda).
+
+    role  — emotsiya/uslub (yulduz: neutral|strict|friendly|whisper). None = yubormaydi.
+    pitch — ovoz balandligi siljishi (pitchShift), 0 = yubormaydi."""
     import json as _json
     import base64
+    import http.client
     import urllib.request
     import urllib.error
     auth, folder = _yx_auth_folder()
+    hints = [{"voice": voice_id}, {"speed": speed}]
+    if role:
+        hints.append({"role": role})
+    if pitch:
+        hints.append({"pitchShift": pitch})
     body = _json.dumps({
         "text": text,
         "outputAudioSpec": {"containerAudio": {"containerAudioType": "OGG_OPUS"}},
-        "hints": [{"voice": voice_id}, {"speed": speed}],
+        "hints": hints,
         "loudnessNormalizationType": "LUFS",
     }).encode("utf-8")
     req = urllib.request.Request(YANDEX_TTS_V3_URL, data=body, headers={
         "Authorization": auth, "x-folder-id": folder,
         "Content-Type": "application/json",
     })
-    raw = None
+    def _parse_v3(raw_bytes: bytes) -> bytes:
+        """v3 javobidan (JSON qatorlar) base64 audio chunk'larni yig'adi.
+        Chala/buzuq qatorlar o'tkazib yuboriladi."""
+        audio = bytearray()
+        for line in (raw_bytes or b"").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = _json.loads(line)
+            except Exception:
+                continue   # kesilgan/buzuq JSON qatori — o'tkazamiz
+            chunk = obj.get("result", {}).get("audioChunk", {}).get("data")
+            if chunk:
+                audio.extend(base64.b64decode(chunk))
+        return bytes(audio)
+
+    # Yandex v3 javobi chunked + connection:close — ba'zan yakuniy chunk kelmay
+    # IncompleteRead bo'ladi. Strategiya: o'qilgan qismni (to'liq yoki partial) PARSE
+    # qilib ko'ramiz; audio chiqsa — ishlatamiz; chiqmasa (JSON kesilgan) — QAYTA
+    # urinamiz (yangi so'rov to'liq javob beradi). 4 urinish.
     last_err = None
-    for attempt in range(3):
+    for attempt in range(4):
+        raw = None
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read()
-            break
+        except http.client.IncompleteRead as e:
+            raw = e.partial
         except urllib.error.HTTPError as e:
             body_txt = e.read().decode("utf-8", "replace")[:300]
             raise RuntimeError(f"Yandex TTS v3 {e.code}: {body_txt}") from None
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+        except (urllib.error.URLError, TimeoutError, OSError,
+                http.client.HTTPException) as e:
             last_err = e
             time.sleep(0.6 * (attempt + 1))
-    if raw is None:
-        raise RuntimeError(f"Yandex TTS v3 tarmoq xatosi (3 urinish): {last_err}")
-    audio = bytearray()
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
             continue
-        try:
-            obj = _json.loads(line)
-        except Exception:
-            continue
-        chunk = obj.get("result", {}).get("audioChunk", {}).get("data")
-        if chunk:
-            audio.extend(base64.b64decode(chunk))
-    if not audio:
-        raise RuntimeError("Yandex TTS v3: audio bo'sh qaytdi")
-    with open(tmp_path, "wb") as f:
-        f.write(bytes(audio))
+        audio = _parse_v3(raw)
+        if audio:
+            with open(tmp_path, "wb") as f:
+                f.write(audio)
+            return
+        last_err = "javob chala/bo'sh (audio topilmadi)"
+        time.sleep(0.6 * (attempt + 1))
+    raise RuntimeError(f"Yandex TTS v3 tarmoq xatosi (4 urinish): {last_err}")
 
 
 # ── Ovoz namunasi (preview) — editorda har ovozni eshitib tanlash uchun ──
@@ -289,7 +323,8 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
                 _tts_yandex(ch, tmps[i], spec["voice"], spec.get("lang", "uz-UZ"),
                             speed=yx_speed)
             else:
-                _tts_yandex_v3(ch, tmps[i], spec["voice"], speed=yx_speed)
+                _tts_yandex_v3(ch, tmps[i], spec["voice"], speed=yx_speed,
+                               role=spec.get("role"), pitch=spec.get("pitch", 0.0))
 
         if len(chunks) == 1:
             _synth((0, chunks[0]))

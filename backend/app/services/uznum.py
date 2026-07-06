@@ -74,6 +74,21 @@ def _date_iso(m):
     return m.group(0)
 
 
+# Oy nomlari (ikkala imlo: sentyabr/sentabr, oktyabr/oktabr).
+_MONTH_NAMES = ("yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|"
+                "sentyabr|sentabr|oktyabr|oktabr|noyabr|dekabr")
+
+
+def _day_month(m):
+    """'1-iyul' → 'birinchi iyul' (kun tartib son)."""
+    return f"{_ordinal(num_to_uz(int(m.group(1))))} {m.group(2)}"
+
+
+def _year(m):
+    """'2026-yil' → 'ikki ming yigirma oltinchi yil' (yil tartib son)."""
+    return f"{_ordinal(num_to_uz(int(m.group(1))))} yil"
+
+
 def _time(m):
     h, mi = int(m.group(1)), int(m.group(2))
     if mi == 0:
@@ -96,8 +111,12 @@ def normalize_uz_tts(text: str) -> str:
     text = re.sub(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b", _date, text)
     text = re.sub(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", _date_iso, text)
     text = re.sub(r"\b(\d{1,2})\.(\d{1,2})\b(?!\d)", _date, text)
-    # 3) Vaqt: HH:MM → "soat ...".
-    text = re.sub(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", _time, text)
+    # 2b) "N-oy" → tartib son + oy ("1-iyul" → "birinchi iyul").
+    text = re.sub(rf"\b(\d{{1,2}})-({_MONTH_NAMES})\b", _day_month, text)
+    # 2c) "N-yil" → tartib son + yil ("2026-yil" → "... oltinchi yil").
+    text = re.sub(r"\b(\d{3,4})-yil\b", _year, text)
+    # 3) Vaqt: HH:MM → "soat ..." (oldindagi ortiqcha "soat" ni yutadi — "soat soat" bo'lmasin).
+    text = re.sub(r"\b(?:soat\s+)?([01]?\d|2[0-3]):([0-5]\d)\b", _time, text)
     # 4) Narx/son: bo'shliqli guruh (300 560) yoki oddiy son → so'z.
     text = re.sub(r"\d{1,3}(?:[  ]\d{3})+|\d+", _num, text)
     return text

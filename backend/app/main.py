@@ -68,8 +68,11 @@ async def lifespan(app: FastAPI):
                 from app.services import avatar_store, musetalk
                 for av in avatar_store.list_avatars():
                     if av.get("real"):
-                        # Native + ishlatiladigan (kichraytirilgan) variantni isitamiz.
+                        # Native + studio (use_max_dim) + JONLI (rt_max_dim, past
+                        # rezolyutsiya) variantlarni isitamiz — birinchi real-time
+                        # so'rov artefakt resize narxini to'lamasin (TTFF past).
                         preload_artifact(av["id"], musetalk.use_max_dim(av))
+                        preload_artifact(av["id"], musetalk.rt_max_dim(av))
             except Exception as e:
                 log.warning("artefakt preload xato: %s", e)
             # Jonli temir yo'l brauzer sessiyasini oldindan ochamiz (1-savol tez bo'lsin).

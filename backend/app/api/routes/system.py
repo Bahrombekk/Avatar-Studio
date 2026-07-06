@@ -81,6 +81,23 @@ def metrics():
     return snap
 
 
+@router.get("/perf")
+def perf_get():
+    """Joriy ishlash preseti (light/heavy) + tegishli knoblar."""
+    from app.core import perf
+    return perf.info()
+
+
+@router.post("/perf")
+def perf_set(body: dict, _: bool = Depends(require_admin)):
+    """Presetni almashtirish: {"preset": "light"|"heavy"}. Yangi so'rovlar darrov
+    yangi presetda ishlaydi (qayta ishga tushirish shart emas)."""
+    from app.core import perf
+    if not perf.set_preset((body or {}).get("preset", "")):
+        raise HTTPException(400, "preset 'light' yoki 'heavy' bo'lishi kerak")
+    return perf.info()
+
+
 @router.get("/cache/stats")
 def cache_stats():
     return aggregate_stats()

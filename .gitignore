@@ -85,3 +85,24 @@ backend/data/conversations.db
 backend/_test_streamq.py
 backend/_serve.sh
 _watch_sq.sh
+backend/scripts/_*
+backend/test/
+
+# ── TLS sertifikatlar (MAXFIY KALIT — hech qachon commit qilinmasin) ──
+backend/certs/
+
+# ── Avatar zaxira/artefakt variantlari va bilim bazasi indeksi (runtime, katta) ──
+backend/data/avatars/*/artifact*/
+backend/data/avatars/*/_prerot_bak/
+backend/data/avatars/*/knowledge/
+backend/data/avatars/*/*.pkl
+backend/data/avatars/*/avator_info.json
+backend/data/avatars/*/full_imgs/
+backend/data/avatars/*/mask/
+
+# ── Tajriba chiqishlari / vendor kod (alohida yuklanadi) ──
+ditto_variants/
+models/LivePortrait/
+gfpgan/
+/oty_kb.json
+/*.wav

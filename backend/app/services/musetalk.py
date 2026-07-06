@@ -20,6 +20,7 @@ from app.core.paths import (
     AVATAR_MASK_DIR, AVATAR_IMGS_DIR, VID_OUT_DIR,
     avatar_artifact_paths,
 )
+from app.core import perf   # yengil/og'ir preset (max_dim cap + batch)
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ _BATCH = max(1, int(os.environ.get("MT_BATCH", "16")))
 # kattalashtiriladi → yumshaydi. Yengil unsharp (nimqilich) + sifatli upscale
 # (INTER_CUBIC) buni qisman qoplaydi (tezlikka deyarli ta'sirsiz). 0 = o'chiq.
 # Halol: tub yechim emas (256 cheklovi), lekin bepul tiniqlik beradi.
-_SHARPEN = max(0.0, float(os.environ.get("RT_SHARPEN", "0.55")))
+_SHARPEN = max(0.0, float(os.environ.get("RT_SHARPEN", "0.65")))
 
 # Lab↔ovoz vaqt mosligi: doimiy ofset (sekund). MuseTalk drift bermaydi (kadr
 # soni = audio×fps aniq), lekin lab biroz oldinda/orqada tuyulsa shu bilan nudge.
@@ -143,6 +144,40 @@ def _sharpen_region(img, amount):
     import cv2
     blur = cv2.GaussianBlur(img, (0, 0), 1.0)
     return cv2.addWeighted(img, 1.0 + amount, blur, -amount, 0)
+
+
+def _mouth_correct(rf, bbox, mask_crop_box, dx=None, dy=None, rot=None):
+    """QO'LDA STATIK OG'IZ TUZATISH (avatarga xos qiyshiqlikni to'g'rilash).
+    dx/dy — og'iz patch'ini piksel bo'yicha siljitadi; rot — gradusda buradi.
+    0/0/0 → tegmaydi. Qiymatlar env (RT_MOUTH_DX/DY/ROT) yoki argument bilan.
+    Eslatma: siljitish/burilish JOYlashuvni tuzatadi — model chizgan SHAKLni emas."""
+    dx = int(os.environ.get("RT_MOUTH_DX", "0")) if dx is None else int(dx)
+    dy = int(os.environ.get("RT_MOUTH_DY", "0")) if dy is None else int(dy)
+    rot = float(os.environ.get("RT_MOUTH_ROT", "0")) if rot is None else float(rot)
+    if not (dx or dy or rot):
+        return rf, bbox, mask_crop_box
+    import cv2
+    if rot:
+        h, w = rf.shape[:2]
+        M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), rot, 1.0)
+        rf = cv2.warpAffine(rf, M, (w, h), flags=cv2.INTER_CUBIC,
+                            borderMode=cv2.BORDER_REPLICATE)
+    if dx or dy:
+        bbox = [bbox[0] + dx, bbox[1] + dy, bbox[2] + dx, bbox[3] + dy]
+        mask_crop_box = [mask_crop_box[0] + dx, mask_crop_box[1] + dy,
+                         mask_crop_box[2] + dx, mask_crop_box[3] + dy]
+    return rf, bbox, mask_crop_box
+
+
+def _avatar_mouth_correction(avatar_id):
+    """Avatarga xos og'iz tuzatishini (mouthDx/mouthDy/mouthRotate) qaytaradi.
+    Kalit bo'lmasa None → _mouth_correct env'ga tushadi (test uchun). Xato → (None,)*3."""
+    try:
+        from app.services import avatar_store
+        av = avatar_store.get_avatar(avatar_id) or {}
+    except Exception:  # noqa: BLE001
+        av = {}
+    return (av.get("mouthDx"), av.get("mouthDy"), av.get("mouthRotate"))
 
 
 # Harakat takrorlanmasin: har generatsiya sikl kadrlarini TASODIFIY nuqtadan
@@ -346,7 +381,25 @@ def use_max_dim(avatar) -> int:
         v = int((avatar or {}).get("maxDim", 1280))
     except (TypeError, ValueError):
         v = 1280
-    return v if v in (1280, 1920) else 1280
+    if v not in (1280, 1920):
+        v = 1280
+    # Yengil/og'ir preset: light rejimda resolution past darajaga cheklanadi
+    # (zaif GPU / DGX Spark uchun yengillik). heavy'da avatar qiymati saqlanadi.
+    return min(v, perf.max_dim_cap())
+
+
+def rt_max_dim(avatar) -> int:
+    """REAL-TIME (jonli suhbat) chiqish rezolyutsiyasi — studio'dan PAST bo'ladi
+    (tezlik uchun; jonli video kichik ekranda ko'rinadi, 256 og'iz latent'i
+    rezolyutsiyadan mustaqil, faqat blend+encode kadr o'lchamiga bog'liq).
+    RT_MAX_DIM env (default 768) bilan cheklanadi; studio use_max_dim() to'liq
+    sifatда qoladi. RT_MAX_DIM=0 → real-time ham to'liq (eski xatti-harakat)."""
+    base = use_max_dim(avatar)
+    try:
+        cap = int(os.environ.get("RT_MAX_DIM", "960"))
+    except (TypeError, ValueError):
+        cap = 960
+    return min(base, cap) if cap and cap > 0 else base
 
 
 def _target_ratio(art, max_dim) -> float:
@@ -623,7 +676,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
         _lap("whisper")
 
         # 2. Batch inference (GPU slot bilan cheklangan — multi-user xavfsizligi)
-        batch_size = _BATCH
+        batch_size = perf.batch_size()
         gen = datagen(whisper_chunks, _input_latent_list_cycle, batch_size)
         res_frame_list = []
         with _gpu_slot("infer"), torch.inference_mode():
@@ -655,6 +708,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
 
         # 3. To'liq kadrga composite (parallel)
         n_total = min(len(res_frame_list), video_num)
+        _mcorr = _avatar_mouth_correction(avatar_id)
 
         def _composite_one(idx):
             cycle_idx = idx % len(_frame_list_cycle)
@@ -669,6 +723,7 @@ def musetalk_infer(wav_path: str, out_mp4: str, fps: int = 25, avatar_id: str = 
                 return None
             mask = _mask_list_cycle[cycle_idx]
             mask_crop_box = _mask_coords_list_cycle[cycle_idx]
+            rf, bbox, mask_crop_box = _mouth_correct(rf, list(bbox), list(mask_crop_box), *_mcorr)
             return get_image_blending(ori_frame, rf, bbox, mask, mask_crop_box)
 
         with ThreadPoolExecutor(max_workers=12) as ex:
@@ -807,6 +862,8 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
         "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
     ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
+    _mcorr = _avatar_mouth_correction(avatar_id)
+
     def _composite(idx, res_frame):
         ci = idx % len(frames)
         x1, y1, x2, y2 = coords[ci]
@@ -814,11 +871,12 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
         try:
             # Realtime: INTER_LINEAR (LANCZOS4 dan ~2x tez; sifat farqi sezilmaydi).
             rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1),
-                            interpolation=cv2.INTER_LINEAR)
+                            interpolation=cv2.INTER_CUBIC)
             rf = _sharpen_region(rf, _SHARPEN)
         except Exception:
             return None
-        return get_image_blending(ori, rf, [x1, y1, x2, y2], masks[ci], mask_coords[ci])
+        rf, _bb, _mcb = _mouth_correct(rf, [x1, y1, x2, y2], list(mask_coords[ci]), *_mcorr)
+        return get_image_blending(ori, rf, _bb, masks[ci], _mcb)
 
     # GPU producer (UNet+VAE) → frame_q → BITTA consumer (composite + ffmpeg).
     # MUHIM (o'lchov): composite'ni ko'p threadga bo'lish GPU-dispatch producer
@@ -836,7 +894,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
         with _gpu_slot("stream"):
             try:
                 _g0 = time.time()
-                gen = datagen(whisper_chunks, latents, _BATCH)
+                gen = datagen(whisper_chunks, latents, perf.batch_size())
                 idx = 0
                 with torch.inference_mode():
                     for whisper_batch, latent_batch in gen:
@@ -867,12 +925,22 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
     def consumer():
         last_fr = None
         last_idx = -1
+        # TEMPORAL SILLIQLASH (real-time lab titrashini kamaytirish). Offline yo'lida
+        # res_frame_list ustida EMA bor edi, lekin oqimda kadrlar birma-bir keladi —
+        # shu sabab RUNNING EMA: ema = a*ema + (1-a)*joriy. Yuqori-chastotali jitter
+        # damp bo'ladi, lab harakati saqlanadi. a=RT_LIP_SMOOTH (0..0.8). 0 = o'chiq.
+        _ls = max(0.0, min(0.8, float(os.environ.get("RT_LIP_SMOOTH", "0.35"))))
+        _ema = None
         try:
             while True:
                 item = frame_q.get()
                 if item is None:
                     break
                 idx, rf = item
+                if _ls > 0:
+                    cur = rf.astype(np.float32)
+                    _ema = cur if _ema is None else (_ls * _ema + (1.0 - _ls) * cur)
+                    rf = _ema
                 fr = _composite(idx, rf)
                 if fr is not None:
                     proc.stdin.write(fr.astype(np.uint8).tobytes())
@@ -930,6 +998,24 @@ def _wav_pcm16(wav_path: str) -> bytes:
         capture_output=True,
     )
     return p.stdout or b""
+
+
+def _write_wav16(path: str, pcm: bytes):
+    """16kHz mono s16 PCM baytlarini WAV faylga yozadi (Whisper kontekst-concat)."""
+    import wave
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(pcm)
+
+
+# Jumla-oqim: oldingi jumlaning oxirgi shuncha KADRI audio dumi Whisper'ga chap
+# kontekst bo'lib qo'shiladi. SABAB: har jumla Whisper'i mustaqil hisoblansa,
+# chegaradagi kadrlar nol-padding "ko'radi" → lab qaltirashi/sinxron uzilish.
+# Dum + jumla birga kodlanadi, dumga to'g'ri kelgan chunk'lar tashlanadi (UNet'ga
+# bormaydi — faqat Whisper encode ozgina qimmatlashadi). 0 = o'chiq. 15 ≈ 0.6s.
+_CTX_FRAMES = max(0, int(os.environ.get("RT_CTX_FRAMES", "15")))
 
 
 def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = None,
@@ -1013,6 +1099,8 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
             except Exception:
                 pass
 
+    _mcorr = _avatar_mouth_correction(avatar_id)
+
     def _composite(ci, res_frame):
         x1, y1, x2, y2 = coords[ci]
         ori = frames[ci].copy()
@@ -1020,15 +1108,24 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
             # Realtime: INTER_LINEAR (LANCZOS4 dan ~2x tez; realtime'da sifat farqi
             # deyarli sezilmaydi, lekin per-kadr compositing'ni keskin tezlashtiradi).
             rf = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1),
-                            interpolation=cv2.INTER_LINEAR)
+                            interpolation=cv2.INTER_CUBIC)
             rf = _sharpen_region(rf, _SHARPEN)
         except Exception:
             return None
-        return get_image_blending(ori, rf, [x1, y1, x2, y2], masks[ci], mask_coords[ci])
+        rf, _bb, _mcb = _mouth_correct(rf, [x1, y1, x2, y2], list(mask_coords[ci]), *_mcorr)
+        return get_image_blending(ori, rf, _bb, masks[ci], _mcb)
 
     def producer():
         pos = 0
         last_fr = None
+        # Chap kontekst dumi (oldingi jumla PCM oxiri) — jumla chegarasida Whisper
+        # uzilishini yo'qotadi. Baytlar KADRga aniq karrali bo'ladi (A/V drift yo'q).
+        ctx_pcm = b""
+        spf_b = (16000 // int(fps)) * 2 if fps and 16000 % int(fps) == 0 else 0
+        # Og'iz EMA silliqlash — bitta-wav stream yo'li bilan BIR XIL (u yerda bor
+        # edi, bu yo'lda yo'q edi). Holat jumlalar ORASIDA ham uzluksiz.
+        _ls = max(0.0, min(0.8, float(os.environ.get("RT_LIP_SMOOTH", "0.35"))))
+        _ema = None
         try:
             with _gpu_slot("streamq"), torch.inference_mode():
                 while True:
@@ -1041,16 +1138,35 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                     pcm = _wav_pcm16(wav)
                     if pcm:
                         audio_bq.put(pcm)
-                    # 2) jumla kadrlari (kadr sikli `pos`dan davom etadi → bosh sakramaydi)
-                    feats, llen = _audio_processor.get_audio_feature(wav, weight_dtype=_weight_dtype)
+                    # 2) jumla kadrlari (kadr sikli `pos`dan davom etadi → bosh sakramaydi).
+                    #    Whisper'ga dum+jumla birga beriladi, dum chunk'lari tashlanadi.
+                    skip = 0
+                    feat_wav = wav
+                    if ctx_pcm and spf_b and pcm:
+                        skip = len(ctx_pcm) // spf_b
+                        feat_wav = wav + ".ctx.wav"
+                        _write_wav16(feat_wav, ctx_pcm + pcm)
+                    feats, llen = _audio_processor.get_audio_feature(feat_wav, weight_dtype=_weight_dtype)
                     wchunks = _audio_processor.get_whisper_chunk(
                         feats, _device, _weight_dtype, _whisper, llen,
                         fps=fps, audio_padding_length_left=2, audio_padding_length_right=2,
                     )
+                    if skip:
+                        wchunks = wchunks[skip:]
+                        try:
+                            _os.remove(feat_wav)
+                        except OSError:
+                            pass
+                    # Keyingi jumla uchun dum (kadr chegarasiga tekislangan)
+                    if _CTX_FRAMES and spf_b and pcm:
+                        k = min(_CTX_FRAMES, len(pcm) // spf_b)
+                        ctx_pcm = pcm[len(pcm) - k * spf_b:] if k else b""
+                    else:
+                        ctx_pcm = b""
                     vnum = len(wchunks)
                     lat = _rotate(latents, pos % n) if n else latents
                     idx = 0
-                    for wb, lb in datagen(wchunks, lat, _BATCH):
+                    for wb, lb in datagen(wchunks, lat, perf.batch_size()):
                         if idx >= vnum:
                             break
                         afeat = _pe(wb.to(_device))
@@ -1063,6 +1179,10 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                                 break
                             if cancel is not None and cancel.is_set():
                                 break
+                            if _ls > 0:
+                                cur = r.astype(np.float32)
+                                _ema = cur if _ema is None else (_ls * _ema + (1.0 - _ls) * cur)
+                                r = _ema
                             ci = (pos + idx) % n
                             fr = _composite(ci, r)
                             if fr is not None:

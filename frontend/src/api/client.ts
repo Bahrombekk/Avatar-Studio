@@ -123,6 +123,22 @@ export const API = {
     }
   },
 
+  // ── Ishlash preseti (yengil/og'ir) ──
+  async getPerf(): Promise<{ preset: string; max_dim_cap: number; batch_size: number }> {
+    const r = await fetch("/perf");
+    if (!r.ok) throw new Error("perf yuklanmadi");
+    return (await r.json()) as { preset: string; max_dim_cap: number; batch_size: number };
+  },
+  async setPerf(preset: "light" | "heavy"): Promise<{ preset: string }> {
+    const r = await fetch("/perf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ preset }),
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "preset o'zgartirilmadi"));
+    return (await r.json()) as { preset: string };
+  },
+
   async listAvatars(): Promise<Avatar[]> {
     const r = await fetch("/api/avatars");
     if (!r.ok) throw new Error("avatars yuklanmadi");

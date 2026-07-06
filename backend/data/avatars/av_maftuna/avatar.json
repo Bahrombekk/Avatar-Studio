@@ -1,0 +1,39 @@
+{
+  "name": "Maftuna",
+  "role": "Virtual yordamchi",
+  "brand": "O‘zbekiston Temir Yo‘llari",
+  "brandShort": "UTY",
+  "status": "live",
+  "accent": "#B98944",
+  "portrait": {
+    "from": "#1C3A5E",
+    "to": "#0F2540",
+    "initials": "M"
+  },
+  "voice": "yulduz",
+  "language": "uz",
+  "persona": "",
+  "respLen": "short",
+  "temperature": 0.4,
+  "speechRate": 0,
+  "fps": 25,
+  "blinkRate": 4,
+  "headMotion": 0.45,
+  "extraMargin": 24,
+  "bboxShift": -12,
+  "mouthRotate": 0,
+  "maxDim": 1280,
+  "hasPhoto": true,
+  "suggestions": [],
+  "id": "av_maftuna",
+  "real": true,
+  "updated": "Hozir",
+  "build": {
+    "state": "done",
+    "stage": "motion",
+    "error": null,
+    "updated": "2026-07-03T04:53:53.662295+00:00"
+  },
+  "hasArtifact": true,
+  "hasMotion": true
+}

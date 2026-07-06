@@ -31,7 +31,10 @@ log = logging.getLogger(__name__)
 
 PREP_TIMEOUT_SEC = 1800   # 30 daqiqa
 
-# v15: bbox_shift har doim 0; faqat extra_margin va parsing_mode ta'sir qiladi.
+# bbox_shift — mask yuqori chegarasini siljitadi: manfiy = og'izga yaqin (audio lab
+# harakatiga ko'proq hissa → aniqroq artikulyatsiya), musbat = uzoq (appearance ko'proq).
+# Avatarga xos qiymat avatar.json "bboxShift"dan o'qiladi (0 = standart). Oraliq odatda
+# [-23..26] (preprocessing kadrga qarab chiqaradi; chegaradan tashqari kesiladi).
 BBOX_SHIFT = 0
 PARSING_MODE = "jaw"
 DEFAULT_EXTRA_MARGIN = 10
@@ -59,10 +62,13 @@ def _video2imgs(vid_path: str, save_dir: str) -> int:
     return count
 
 
-def _video_to_artifact_dir(video: str, dest_dir, extra_margin: int, meta_extra: dict = None):
+def _video_to_artifact_dir(video: str, dest_dir, extra_margin: int, meta_extra: dict = None,
+                           bbox_shift: int = None):
     """Videodan MuseTalk artefakt yasab, dest_dir ga ATOMIK joylaydi (forward-only sikl).
 
     Idle va harakat primitivlari uchun umumiy yadro. Xato → RuntimeError."""
+    if bbox_shift is None:
+        bbox_shift = BBOX_SHIFT
     musetalk.ensure_loaded()
     import torch
     import cv2
@@ -87,7 +93,7 @@ def _video_to_artifact_dir(video: str, dest_dir, extra_margin: int, meta_extra: 
         raise RuntimeError("Videodan kadr o'qilmadi")
     img_list = sorted(glob.glob(os.path.join(str(full_imgs), "*.png")))
 
-    coord_list, frame_list = get_landmark_and_bbox(img_list, BBOX_SHIFT)
+    coord_list, frame_list = get_landmark_and_bbox(img_list, bbox_shift)
 
     input_latent_list = []
     for idx, (bbox, frame) in enumerate(zip(coord_list, frame_list)):
@@ -122,7 +128,7 @@ def _video_to_artifact_dir(video: str, dest_dir, extra_margin: int, meta_extra: 
     with open(tmp / "mask_coords.pkl", "wb") as f:
         pickle.dump(mask_coords, f)
     torch.save(latent_cycle, str(tmp / "latents.pt"))
-    info = {"frames": len(frame_cycle), "bbox_shift": BBOX_SHIFT,
+    info = {"frames": len(frame_cycle), "bbox_shift": bbox_shift,
             "extra_margin": extra_margin, "version": "v15"}
     if meta_extra:
         info.update(meta_extra)
@@ -144,9 +150,11 @@ def preprocess_avatar(avatar_id: str) -> str:
     if not idle.is_file():
         raise RuntimeError("Idle video topilmadi — avval idle yarating")
     extra_margin = int(av.get("extraMargin", DEFAULT_EXTRA_MARGIN))
+    bbox_shift = int(av.get("bboxShift", BBOX_SHIFT))
     art = avatar_artifact_dir(avatar_id)
     n = _video_to_artifact_dir(str(idle), art, extra_margin,
-                               meta_extra={"avatar_id": avatar_id, "kind": "idle"})
+                               meta_extra={"avatar_id": avatar_id, "kind": "idle"},
+                               bbox_shift=bbox_shift)
     musetalk.invalidate(avatar_id)
     avatar_store.set_ready(avatar_id, True)
     log.info("PREPROCESS-OK (%d kadr)", n, extra={"event": "preprocess_ok", "frames": n})

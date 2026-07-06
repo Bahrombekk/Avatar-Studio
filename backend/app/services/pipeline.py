@@ -30,10 +30,13 @@ def _avatar_params(avatar):
     return sp, temp, mt, fps, avatar.get("id")
 
 
-def _augment_prompt(system_prompt: str, avatar_id, user_message: str) -> str:
-    """Bilim bazasidan (RAG) mos bo'laklarni topib, system prompt'ga qo'shadi.
+def _augment_prompt(system_prompt: str, avatar_id, user_message: str):
+    """Bilim bazasidan (RAG) + jonli temir yo'l ma'lumotini system prompt'ga qo'shadi.
 
-    Xato/bo'sh bo'lsa o'zgarmagan system_prompt qaytadi (degradatsiya)."""
+    (system_prompt, rail_added) qaytaradi — rail_added=True bo'lsa chaqiruvchi
+    max_tokens'ni ko'taradi (jadval javobi uzunroq, kesilmasin).
+    Xato/bo'sh bo'lsa o'zgarmagan qaytadi (degradatsiya)."""
+    rail_added = False
     # RAG — bilim bazasi (avatarga bog'liq).
     if avatar_id:
         try:
@@ -49,9 +52,10 @@ def _augment_prompt(system_prompt: str, avatar_id, user_message: str) -> str:
         rail = railway.railway_context(user_message)
         if rail:
             system_prompt = system_prompt + "\n\n" + rail
+            rail_added = True
     except Exception as e:  # noqa: BLE001
         log.warning("[railway] augment xato: %s", e)
-    return system_prompt
+    return system_prompt, rail_added
 
 
 def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = None) -> dict:
@@ -82,7 +86,9 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
     # log_context: shu blok ichidagi HAR log avatar_id+session_id bilan chiqadi
     # (gpt/tts/musetalk ichki loglari ham — qo'lda uzatmasdan).
     with log_context(avatar_id=hist_key or "-", session_id=sid):
-        system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
+        system_prompt, _rail = _augment_prompt(system_prompt, hist_key, user_message)
+        if _rail:
+            max_tokens = max(max_tokens, 500)   # jadval javobi kesilmasin
 
         t1 = time.time()
         reply = ask_gpt(user_message, system_prompt=system_prompt,
@@ -165,7 +171,9 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
 
     sid = str(uuid.uuid4())[:8]
     with log_context(avatar_id=hist_key or "-", session_id=sid):
-        system_prompt = _augment_prompt(system_prompt, hist_key, user_message)
+        system_prompt, _rail = _augment_prompt(system_prompt, hist_key, user_message)
+        if _rail:
+            max_tokens = max(max_tokens, 500)   # jadval javobi kesilmasin
 
         t1 = time.time()
         reply = ask_gpt(user_message, system_prompt=system_prompt,
