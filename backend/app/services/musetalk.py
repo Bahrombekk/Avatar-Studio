@@ -245,16 +245,30 @@ def _encoder_name() -> str:
     return _ENCODER
 
 
-def _venc_args(fps: int, hd: bool = False) -> list:
+def _venc_args(fps: int, hd: bool = False, low_latency: bool = False) -> list:
     """ffmpeg video kodlash argumentlari. hd=True (offline Studio) → yuqoriroq sifat
     (crf 16 + sekinroq preset; NVENC cq 17/p7). hd=False (real-time) → tez (crf 18).
-    NVENC ~5x tez, lekin x264 (slow) biroz tiniqroq — offline'da x264 afzal."""
+    NVENC ~5x tez, lekin x264 (slow) biroz tiniqroq — offline'da x264 afzal.
+
+    low_latency=True (real-time OQIM) → enkoder buferini MINIMALLASHTIRADI:
+    B-kadrlar yo'q (-bf 0, qayta tartiblash buferi yo'q), lookahead yo'q, keyframe
+    tez-tez (-g ~0.25s) → frag_keyframe birinchi fragmentni DARROV chiqaradi.
+    SABAB: -tune hq nvenc'da lookahead+B-kadr buferini yoqib, birinchi video baytni
+    ~1.9s kechiktirardi (o'lchangan). Sifat farqi realtime'da sezilmaydi."""
     enc = _encoder_name()
+    g_ll = max(2, int(fps) // 4)   # ~0.25s keyframe oralig'i (tez birinchi fragment)
     if enc == "h264_nvenc":
+        if low_latency:
+            return ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll",
+                    "-rc", "vbr", "-cq", "22", "-b:v", "0", "-bf", "0", "-delay", "0",
+                    "-pix_fmt", "yuv420p", "-g", str(g_ll)]
         cq, pre = ("17", "p7") if hd else ("20", "p5")
         return ["-c:v", "h264_nvenc", "-preset", pre, "-tune", "hq",
                 "-rc", "vbr", "-cq", cq, "-b:v", "0",
                 "-pix_fmt", "yuv420p", "-g", str(fps)]
+    if low_latency:
+        return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+                "-crf", "20", "-bf", "0", "-pix_fmt", "yuv420p", "-g", str(g_ll)]
     crf, pre = ("16", "slow") if hd else ("18", "veryfast")
     return ["-c:v", "libx264", "-preset", pre, "-crf", crf,
             "-pix_fmt", "yuv420p", "-g", str(fps)]
@@ -858,7 +872,7 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
         "-map", "0:v", "-map", "1:a",
         # Video kodlovchi (odatda libx264 crf18; o'lchov: stream'da ffmpeg GPU ostida
         # to'liq yashiringan — bottleneck emas, shuning uchun NVENC kerak emas).
-        *_venc_args(fps), "-c:a", "aac", "-b:a", "128k", "-shortest",
+        *_venc_args(fps, low_latency=True), "-c:a", "aac", "-b:a", "128k", "-shortest",
         "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
     ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
@@ -1072,7 +1086,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
         "-probesize", "32", "-analyzeduration", "0", "-thread_queue_size", "4096",
         "-f", "s16le", "-ar", "16000", "-ac", "1", "-i", f"pipe:{audio_r}",
         "-map", "0:v", "-map", "1:a",
-        *_venc_args(fps), "-c:a", "aac", "-b:a", "128k",
+        *_venc_args(fps, low_latency=True), "-c:a", "aac", "-b:a", "128k",
         # max_interleave_delta 0 — ffmpeg interleave uchun kutmasdan paketlarni darrov
         # muxer'ga beradi (frag'lar tez chiqadi, birinchi kadr bloklanmaydi).
         "-max_interleave_delta", "0",
@@ -1118,6 +1132,10 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
     def producer():
         pos = 0
         last_fr = None
+        # TTFF profiling (RT_STREAM_PROFILE=1) — birinchi jumla bosqich vaqtlari.
+        _sp = os.environ.get("RT_STREAM_PROFILE") == "1"
+        _sp0 = time.time()
+        _sp_first = True
         # Chap kontekst dumi (oldingi jumla PCM oxiri) — jumla chegarasida Whisper
         # uzilishini yo'qotadi. Baytlar KADRga aniq karrali bo'ladi (A/V drift yo'q).
         ctx_pcm = b""
@@ -1164,6 +1182,9 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                     else:
                         ctx_pcm = b""
                     vnum = len(wchunks)
+                    if _sp and _sp_first:
+                        log.info("[TTFF] whisper(1-jumla) tayyor: %.2fs (%d kadr)",
+                                 time.time() - _sp0, vnum)
                     lat = _rotate(latents, pos % n) if n else latents
                     idx = 0
                     for wb, lb in datagen(wchunks, lat, perf.batch_size()):
@@ -1188,6 +1209,10 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                             if fr is not None:
                                 proc.stdin.write(fr.astype(np.uint8).tobytes())
                                 last_fr = fr
+                                if _sp and _sp_first:
+                                    log.info("[TTFF] 1-kadr ffmpeg'ga yozildi: %.2fs",
+                                             time.time() - _sp0)
+                                    _sp_first = False
                             idx += 1
                     if cancel is not None and cancel.is_set():
                         break
