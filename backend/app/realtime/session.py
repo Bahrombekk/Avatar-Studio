@@ -109,7 +109,17 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     avatar = avatar_store.get_avatar(avatar_id) if avatar_id else None
     history_key = session_id or avatar_id
     use_voice = voice or (avatar or {}).get("voice", "madina")
+    # Realtime fps: avatar.json fps (default 25). RT_FPS env bilan PASTGA cheklash
+    # mumkin (zaif GPU / Spark uchun) — kadr soni kamayib GPU (asosan VAE) yengillashadi,
+    # video o'ynash tezligiga ulguradi. Studio (offline) to'liq fps'da qoladi.
+    # 20 tavsiya etiladi: 16000/20=800 aniq → jumla kontekst-overlap buzilmaydi.
     fps = int((avatar or {}).get("fps", 25)) or 25
+    try:
+        _rt_fps = int(os.environ.get("RT_FPS", "0"))
+        if _rt_fps and 10 <= _rt_fps < fps:
+            fps = _rt_fps
+    except (TypeError, ValueError):
+        pass
 
     # ── TAYYOR JAVOB (pre-rendered Q&A) ── mos kelsa tayyor videoni DARROV beramiz.
     if avatar_id:
