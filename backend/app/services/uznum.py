@@ -9,6 +9,8 @@ import re
 
 _ONES = ["", "bir", "ikki", "uch", "to'rt", "besh", "olti", "yetti", "sakkiz", "to'qqiz"]
 _TENS = ["", "o'n", "yigirma", "o'ttiz", "qirq", "ellik", "oltmish", "yetmish", "sakson", "to'qson"]
+_UNITS = {"km/soat": "kilometr soatiga", "km": "kilometr", "kg": "kilogramm",
+          "sm": "santimetr", "mm": "millimetr", "ml": "millilitr", "kv.m": "kvadrat metr"}
 _MONTHS = {1: "yanvar", 2: "fevral", 3: "mart", 4: "aprel", 5: "may", 6: "iyun",
            7: "iyul", 8: "avgust", 9: "sentyabr", 10: "oktyabr", 11: "noyabr", 12: "dekabr"}
 # Klass/poyezd kodidagi harf → o'qilishi (kiril va lotin).
@@ -117,6 +119,15 @@ def normalize_uz_tts(text: str) -> str:
     text = re.sub(r"\b(\d{3,4})-yil\b", _year, text)
     # 3) Vaqt: HH:MM → "soat ..." (oldindagi ortiqcha "soat" ni yutadi — "soat soat" bo'lmasin).
     text = re.sub(r"\b(?:soat\s+)?([01]?\d|2[0-3]):([0-5]\d)\b", _time, text)
+    # 3b) Vergul-ajratkichli mingliklar (4,000 / 1,234,567) → vergulni olib tashlaymiz
+    #     ("4,000" -> "4000" -> keyin "to'rt ming"). Faqat vergul + AYNAN 3 raqam guruhi
+    #     (o'nlik kasr "3,5" tegilmaydi — undan keyin 3 raqam kelmaydi).
+    text = re.sub(r"\d{1,3}(?:,\d{3})+", lambda m: m.group(0).replace(",", ""), text)
+    # 3c) Qisqartma birliklar SONdan keyin → to'liq so'z ("4000 km" → "... kilometr").
+    #     Faqat raqamdan keyin (tasodifiy "km"/"kg" so'zga tegmaydi). Ko'p harfli
+    #     bir xil birliklar (bir harfli m/g/t xavfli — tegilmaydi).
+    text = re.sub(r"(?<=\d)\s*(km/soat|km|kg|sm|mm|ml|kv\.m)\b",
+                  lambda m: " " + _UNITS[m.group(1)], text)
     # 4) Narx/son: bo'shliqli guruh (300 560) yoki oddiy son → so'z.
     text = re.sub(r"\d{1,3}(?:[  ]\d{3})+|\d+", _num, text)
     return text
