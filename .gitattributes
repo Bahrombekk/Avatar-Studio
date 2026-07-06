@@ -1,0 +1,16 @@
+# Shell/skript va matn fayllar HAR DOIM LF bilan saqlanadi va checkout qilinadi.
+# SABAB: Windows autocrlf .sh fayllarga CRLF qo'shsa, WSL/Linux bash ularni
+# ishga tushira olmaydi ("set: pipefail: invalid option name" — \r opsiyaga yopishadi).
+*.sh    text eol=lf
+*.py    text eol=lf
+*.bash  text eol=lf
+run.sh  text eol=lf
+
+# Binar (git tegmasin)
+*.mp4   binary
+*.wav   binary
+*.pt    binary
+*.pth   binary
+*.onnx  binary
+*.jpg   binary
+*.png   binary

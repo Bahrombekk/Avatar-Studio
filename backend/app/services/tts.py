@@ -46,6 +46,52 @@ VOICES = {
 }
 DEFAULT_VOICE = "madina"
 
+# ── Dinamik emotsiya (jumla mazmuniga qarab rol/ohang) ──
+# Qaysi ovozlar Yandex v3 rollarini qo'llaydi va qaysi rollar xavfsiz.
+# (yulduz: neutral|strict|friendly|whisper — boshqa rollar HTTP 400 beradi.)
+ROLE_VOICES = {"yulduz": {"neutral", "strict", "friendly", "whisper"}}
+
+# O'zbekcha kalit-so'zlar (registrsiz, apostrof birxillashtirilgan holda qidiriladi).
+_EMO_SOFT = ("kechiras", "uzr", "afsus", "afsuski", "achinar", "tushunaman",
+             "muammo", "xato", "imkoni yo'q", "imkoni yoq", "bekor qilin",
+             "topilmadi", "mavjud emas", "band emas")
+_EMO_FIRM = ("diqqat", "muhim", "ogohlantir", "majbur", "shart ", "taqiq",
+             "mumkin emas", "ruxsat etilmaydi", "esda tut")
+_EMO_WARM = ("assalom", "salom", "xush kelib", "rahmat", "tashakkur", "tabrik",
+             "xayrli", "marhamat", "yordam bera")
+
+
+def detect_emotion(text: str, voice: str = "yulduz"):
+    """Jumla mazmunidan (role, pitchShift) qaytaradi — jonli ohang uchun.
+    Faqat rol qo'llaydigan ovozlarda ishlaydi; aks holda (None, 0.0).
+    Yengil evristika (kalit-so'z + tinish belgisi) — QO'SHIMCHA KECHIKISH yo'q,
+    tashqi so'rov yo'q. Yulduz rollari cheklangan, shuning uchun asosan
+    friendly↔neutral↔strict + kichik pitchShift (±3) bilan modulyatsiya."""
+    roles = ROLE_VOICES.get(voice)
+    if not roles:
+        return None, 0.0
+    t = (text or "").strip().lower().replace("ʻ", "'").replace("`", "'").replace("ʼ", "'")
+    if not t:
+        return None, 0.0
+
+    def _pick(name):
+        return name if name in roles else ("friendly" if "friendly" in roles else None)
+
+    # 1) Yumshoq/hamdard (uzr, afsus, muammo, topilmadi) — sekinroq, past ohang.
+    if any(k in t for k in _EMO_SOFT):
+        return _pick("neutral"), -1.0
+    # 2) Qat'iy/ogohlantirish (diqqat, muhim, taqiq).
+    if any(k in t for k in _EMO_FIRM):
+        return _pick("strict"), 0.0
+    # 3) Salomlashish/minnatdorchilik yoki xitob → iliq, ko'tarinki.
+    if t.endswith("!") or any(k in t for k in _EMO_WARM):
+        return _pick("friendly"), 2.0
+    # 4) Savol → iliq, taklif ohangi (biroz ko'tarilgan).
+    if t.endswith("?"):
+        return _pick("friendly"), 1.0
+    # 5) Standart bayon → iliq, neytral ohang.
+    return _pick("friendly"), 0.0
+
 # Ikki chetdagi sukunatni kesish filtri (nutq tugagach og'iz g'imirlamasin).
 _TRIM_AF = (
     "silenceremove=start_periods=1:start_threshold=-45dB:detection=peak,"
@@ -281,13 +327,32 @@ def ensure_preview(voice_id: str) -> str:
     return str(p)
 
 
-def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0):
+def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0,
+        role: str = None, pitch: float = None, auto_emotion: bool = False):
     """speed — gapirish tezligi ko'paytuvchisi (1.0 = normal; <1 sekin, >1 tez).
-    pace (slow/medium/fast) shu orqali qo'llanadi. edge: rate%, Yandex: speed param."""
+    pace (slow/medium/fast) shu orqali qo'llanadi. edge: rate%, Yandex: speed param.
+
+    role/pitch — Yandex v3 emotsiya override (None = spec/auto). auto_emotion=True
+    bo'lsa va role berilmagan bo'lsa, jumla mazmunidan (detect_emotion) rol/ohang
+    aniqlanadi (jonli suhbatда jumlama-jumla o'zgaradi)."""
     spec = VOICES.get(voice) or VOICES[DEFAULT_VOICE]
     provider = spec["provider"]
     smooth = spec.get("smooth_af", "")
     speed = max(0.5, min(2.0, float(speed or 1.0)))
+
+    # Emotsiya (role/pitch) — RAW matndan aniqlanadi (normalizatsiyadan oldin, tinish
+    # belgisi saqlansin). Aniq override > auto > spec standarti.
+    eff_role = spec.get("role")
+    eff_pitch = spec.get("pitch", 0.0)
+    if role is not None or pitch is not None:
+        if role is not None:
+            eff_role = role
+        if pitch is not None:
+            eff_pitch = pitch
+    elif auto_emotion:
+        _r, _p = detect_emotion(text, voice)
+        if _r is not None:
+            eff_role, eff_pitch = _r, _p
     # O'zbek ovozlari uchun: raqam/sana/vaqt/klass kodlarini SO'Zga o'giramiz
     # (TTS to'g'ri talaffuz qilsin). Ekranda ko'rsatilgan matn O'ZGARMAYDI — bu faqat
     # TTS'ga kiruvchi nusxa. Rus/ingliz/qozoq ovozlarida o'tkazib yuboramiz.
@@ -324,7 +389,7 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
                             speed=yx_speed)
             else:
                 _tts_yandex_v3(ch, tmps[i], spec["voice"], speed=yx_speed,
-                               role=spec.get("role"), pitch=spec.get("pitch", 0.0))
+                               role=eff_role, pitch=eff_pitch or 0.0)
 
         if len(chunks) == 1:
             _synth((0, chunks[0]))

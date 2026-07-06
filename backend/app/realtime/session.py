@@ -44,6 +44,9 @@ _SENTENCE_STREAM = os.environ.get("RT_SENTENCE_STREAM", "0").lower() not in ("0"
 _MIN_TAIL_CHARS = 20
 # Jumlalar orasiga qo'shiladigan tabiiy pauza (soniya). 0 → o'chirilgan.
 _SENT_PAUSE = float(os.environ.get("RT_SENT_PAUSE", "0.22") or 0)
+# Dinamik emotsiya: har jumla mazmuniga qarab TTS roli/ohangi o'zgaradi (yulduz v3).
+# Qo'shimcha kechikish yo'q (evristika). O'chirish: RT_EMOTION=0.
+_EMOTION = os.environ.get("RT_EMOTION", "1").lower() not in ("0", "false", "no")
 
 # Jumla oxiri: . ! ? … (+ yopuvchi qo'shtirnoq/qavs), KEYIN bo'shliq.
 # Oqim paytida $ (bufer oxiri) bilan bo'lmaymiz — "3." dan keyin "5" kelishi
@@ -183,7 +186,7 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
                 wav = str(TEMP_DIR / f"rt_{sid}_{i}.wav")
                 t0 = time.time()
                 try:
-                    tts(sent, wav, voice=use_voice)
+                    tts(sent, wav, voice=use_voice, auto_emotion=_EMOTION)
                 except Exception as e:  # noqa: BLE001
                     log.error("[rt-tts] jumla %d xato (%s): %s", i, use_voice, e,
                               extra={"stage": "tts", "voice": use_voice})
