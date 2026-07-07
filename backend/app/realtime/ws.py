@@ -87,7 +87,9 @@ async def realtime_ws(ws: WebSocket):
     avatar_id = ws.query_params.get("avatar") or None
     voice = ws.query_params.get("voice") or None
     avatar = avatar_store.get_avatar(avatar_id) if avatar_id else None
-    language = (avatar or {}).get("language", "uz")
+    # Jonli sahifadan tanlangan suhbat tili (lang param) — avatar standart tilини
+    # bekor qiladi. STT + GPT + ovoz shu tilга moslanadi. Yo'q bo'lsa — avatar tili.
+    language = ws.query_params.get("lang") or (avatar or {}).get("language", "uz")
     loop = asyncio.get_event_loop()
     # Har ulanish — alohida suhbat sessiyasi (multi-user: tarixlar aralashmasin).
     session_id = "rt_" + uuid.uuid4().hex[:16]
@@ -116,7 +118,7 @@ async def realtime_ws(ws: WebSocket):
         def worker():
             try:
                 for ev in reply_stream(user_text, avatar_id, voice, session_id=session_id,
-                                       start_frame=start_frame, cancel=cancel):
+                                       start_frame=start_frame, cancel=cancel, lang=language):
                     loop.call_soon_threadsafe(q.put_nowait, ev)
             except Exception as e:  # noqa: BLE001
                 loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "message": str(e)})

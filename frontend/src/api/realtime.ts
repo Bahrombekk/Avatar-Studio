@@ -9,11 +9,13 @@ export function openRealtimeWS(
   onEvent: RealtimeEvent,
   onOpen?: () => void,
   onClose?: () => void,
+  lang?: string,
 ): WebSocket {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const url =
     `${proto}://${location.host}/api/realtime/ws` +
-    `?avatar=${encodeURIComponent(avatarId)}&voice=${encodeURIComponent(voice)}`;
+    `?avatar=${encodeURIComponent(avatarId)}&voice=${encodeURIComponent(voice)}` +
+    (lang ? `&lang=${encodeURIComponent(lang)}` : "");
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => onOpen?.();

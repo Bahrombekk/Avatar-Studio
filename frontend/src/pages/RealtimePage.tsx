@@ -16,13 +16,23 @@ type Turn = { role: "user" | "avatar"; text: string; streaming?: boolean };
 export function RealtimePage() {
   const { avatars } = useAvatars();
   const tr = useT();
-  const { t: tweaks, setTweak } = useTweaksCtx();
+  const { setTweak } = useTweaksCtx();
   const ready = useMemo(() => avatars.filter((a) => a.real), [avatars]);
   const [avatarId, setAvatarId] = useState<string>("");
   const avatar: Avatar | undefined = useMemo(
     () => ready.find((a) => a.id === avatarId) || ready[0],
     [ready, avatarId],
   );
+
+  // Suhbat tili (jonli sahifa dropdownidan) — avatar standart tilidan boshlanadi.
+  // O'zgarsa WS shu til bilan qayta ulanadi; ovoz avatar.langVoices[til] dan olinadi.
+  const [convLang, setConvLang] = useState<string>("");
+  useEffect(() => {
+    if (avatar) setConvLang(((avatar as Avatar & { language?: string }).language) || "uz");
+  }, [avatar?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const effLang = convLang || (avatar as (Avatar & { language?: string }) | undefined)?.language || "uz";
+  const langVoices = (avatar as (Avatar & { langVoices?: Record<string, string> }) | undefined)?.langVoices || {};
+  const effVoice = langVoices[effLang] || avatar?.voice || "";
 
   const [connected, setConnected] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -60,7 +70,7 @@ export function RealtimePage() {
     setAnswerUrl(null);
     const ws = openRealtimeWS(
       avatar.id,
-      avatar.voice || "",
+      effVoice,
       (type, data) => {
         // Barge-in turn-filtri: yangi navbat (transcript) raqamini eslab qolamiz;
         // eski navbatga tegishli (bo'lib qo'yilgan javob) eventlarni e'tiborsiz qoldiramiz.
@@ -127,6 +137,7 @@ export function RealtimePage() {
       },
       () => setConnected(true),
       () => setConnected(false),
+      effLang,
     );
     wsRef.current = ws;
     const ping = window.setInterval(() => {
@@ -136,7 +147,7 @@ export function RealtimePage() {
       window.clearInterval(ping);
       try { ws.close(); } catch { /* ignore */ }
     };
-  }, [avatar?.id, avatar?.voice]);
+  }, [avatar?.id, effVoice, effLang]);
 
   // Idle loop — ref orqali majburiy muted+play (qora bo'lmasligi uchun)
   useEffect(() => {
@@ -278,8 +289,11 @@ export function RealtimePage() {
         <div className="rt-top-r">
           <span className={"rt-dot" + (connected ? " on" : "")} />
           <span className="rt-conn">{connected ? tr("conn.connected") : tr("conn.connecting")}</span>
-          <select className="rt-select" value={tweaks.uiLang as string}
-            onChange={(e) => setTweak("uiLang", e.target.value)} aria-label="Til / Language">
+          {/* Suhbat tili: tanlansa Maftuna shu tilda + shu tilga tanlangan ovoz bilan
+              gapiradi (WS qayta ulanadi). Interfeys tili ham shunga moslanadi. */}
+          <select className="rt-select" value={effLang}
+            onChange={(e) => { setConvLang(e.target.value); setTweak("uiLang", e.target.value); }}
+            aria-label="Suhbat tili / Language">
             {LANGS.map((l) => (
               <option key={l.id} value={l.id}>{l.label}</option>
             ))}

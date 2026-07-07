@@ -4,7 +4,7 @@ Server boshqaradigan maydonlar (id, real, sessions, avgLatency, cacheRate,
 csat, updated) bu yerda YO'Q — ularni avatar_store o'rnatadi. Klient faqat
 konfiguratsiya yuboradi.
 """
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -35,6 +35,9 @@ class AvatarCreate(BaseModel):
 
     voice: str = DEFAULT_VOICE
     language: Literal["uz", "ru", "en"] = "uz"
+    # Har til uchun oldindan tanlangan ovoz (til_kodi → ovoz_id). Jonli suhbatда
+    # til tanlanganда shu ovoz ishlatiladi. Bo'sh bo'lsa — til-default ovoz.
+    langVoices: Dict[str, str] = Field(default_factory=dict)
 
     persona: str = Field("", max_length=4000)
     respLen: Literal["short", "medium", "long"] = "short"
@@ -65,6 +68,12 @@ class AvatarCreate(BaseModel):
         cleaned = [s.strip() for s in v if s and s.strip()]
         return cleaned[:6]
 
+    @field_validator("langVoices")
+    @classmethod
+    def _lv_known(cls, v):
+        # Faqat mavjud ovoz id'larini saqlaymiz.
+        return {k: vid for k, vid in (v or {}).items() if vid in _VOICE_IDS}
+
 
 class AvatarUpdate(BaseModel):
     """Qisman yangilash — barcha maydon ixtiyoriy. Faqat berilganlar o'zgaradi."""
@@ -80,6 +89,7 @@ class AvatarUpdate(BaseModel):
 
     voice: Optional[str] = None
     language: Optional[Literal["uz", "ru", "en"]] = None
+    langVoices: Optional[Dict[str, str]] = None
 
     persona: Optional[str] = Field(None, max_length=4000)
     respLen: Optional[Literal["short", "medium", "long"]] = None
@@ -101,6 +111,13 @@ class AvatarUpdate(BaseModel):
         if v is not None and v not in _VOICE_IDS:
             raise ValueError(f"Noma'lum ovoz '{v}'. Mavjud: {sorted(_VOICE_IDS)}")
         return v
+
+    @field_validator("langVoices")
+    @classmethod
+    def _lv_known(cls, v):
+        if not v:
+            return v
+        return {k: vid for k, vid in v.items() if vid in _VOICE_IDS}
 
     @field_validator("suggestions")
     @classmethod

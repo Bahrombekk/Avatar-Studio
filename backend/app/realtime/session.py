@@ -99,7 +99,7 @@ def _pad_wav(wav: str, pad: float):
 
 
 def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
-                 session_id: str = None, start_frame=None, cancel=None):
+                 session_id: str = None, start_frame=None, cancel=None, lang: str = None):
     """Matndan javob quvuri. {token}* → {stream,url} → {text} → {done} yoki {error}.
 
     session_id — har WS ulanishiga noyob (multi-user): GPT suhbat tarixi shu kalit
@@ -108,8 +108,9 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     """
     avatar = avatar_store.get_avatar(avatar_id) if avatar_id else None
     history_key = session_id or avatar_id
-    _lang = (avatar or {}).get("language", "uz")
-    # Ovoz: avatar tiliga mos (langVoices[til] > tilga mos asosiy > til-default).
+    # Suhbat tili: jonli sahifadan tanlangan (lang) > avatar standart tili.
+    _lang = lang or (avatar or {}).get("language", "uz")
+    # Ovoz: shu tilga mos (langVoices[til] > tilga mos asosiy > til-default).
     # 'til=ingliz' → inglizcha ovoz + o'zbekcha normalizatsiya o'zi o'chadi.
     from app.services.tts import voice_for
     use_voice = voice or voice_for(avatar, _lang)
@@ -149,7 +150,7 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     # GPT — voice rejimi (to'liq, markdownsiz)
     if avatar:
         system_prompt, max_tokens = build_system_prompt(
-            avatar.get("persona", ""), "voice", avatar.get("language", "uz"),
+            avatar.get("persona", ""), "voice", _lang,
         )
         temperature = float(avatar.get("temperature", 0.4))
     else:

@@ -283,29 +283,38 @@ function TabVoice({ draft, set }) {
     a.play().catch(() => setPlaying(""));
     setPlaying(id);
   }
-  // Til o'zgarganda joriy ovoz o'sha tilga mos bo'lmasa, birinchi mos ovozni tanlaymiz.
+  // Har TIL uchun alohida ovoz saqlanadi (langVoices xaritasi). Joriy tab = draft.language
+  // (asosiy til). draft.voice = asosiy tilning ovozi (moslikда saqlanadi).
+  const langVoices = draft.langVoices || {};
+  const curVoice = langVoices[draft.language] || draft.voice;
+  // Tilni tanlash = shu tilni tahrirlash tabini ochish (+ asosiy til). Ovoz o'sha
+  // til uchun saqlangani ko'rsatiladi (yoki birinchi mos ovoz).
   const pickLang = (code) => {
-    const cur = VOICES.find((v) => v.id === draft.voice);
-    if (cur && cur.langCode === code) { set({ language: code }); return; }
-    const first = VOICES.find((v) => v.langCode === code);
-    set(first ? { language: code, voice: first.id } : { language: code });
+    const v = langVoices[code] || (VOICES.find((x) => x.langCode === code) || {}).id;
+    set({ language: code, voice: v || draft.voice,
+          langVoices: { ...langVoices, [code]: v || langVoices[code] } });
   };
+  // Ovoz tanlash = joriy TIL uchun saqlash (+ asosiy til ovozi).
+  const pickVoice = (id) => set({
+    voice: id, langVoices: { ...langVoices, [draft.language]: id },
+  });
   return (
-    <Section title="Ovoz va til" desc="TTS ovozini va asosiy tilni tanlang.">
-      <Field label="Til">
+    <Section title="Ovoz va til" desc="Har til uchun alohida ovoz tanlang — jonli suhbatda tanlangan tilda shu ovoz bilan gapiradi.">
+      <Field label="Til" hint="Tilni tanlab, o'sha til uchun ovozni belgilang. Har til alohida saqlanadi.">
         <div className="ed-lang">
           {LANGUAGES.map((l) => (
             <button key={l.code} className={"ed-lang-btn" + (draft.language === l.code ? " on" : "")} onClick={() => pickLang(l.code)}>
               <span className="ed-lang-flag">{l.flag}</span><span>{l.native}</span>
+              {langVoices[l.code] && <span className="ed-lang-vdot" title="Ovoz tanlangan">●</span>}
             </button>
           ))}
         </div>
       </Field>
 
-      <Field label="Ovoz">
+      <Field label={`Ovoz · ${(LANGUAGES.find((l) => l.code === draft.language) || {}).native || ""}`}>
         <div className="ed-voices">
           {VOICES.filter((v) => langMatch(v, draft.language)).map((v) => (
-            <button key={v.id} className={"ed-voice" + (draft.voice === v.id ? " on" : "")} onClick={() => set({ voice: v.id })}>
+            <button key={v.id} className={"ed-voice" + (curVoice === v.id ? " on" : "")} onClick={() => pickVoice(v.id)}>
               <div className="ed-voice-av" style={{ background: v.gender === "Ayol" || v.gender==="Friendly" ? "var(--brass)" : "var(--navy)" }}>{v.name[0]}</div>
               <div className="ed-voice-meta">
                 <div className="ed-voice-name">{v.name}</div>
