@@ -14,9 +14,11 @@ _UNITS = {"km/soat": "kilometr soatiga", "km": "kilometr", "kg": "kilogramm",
 
 # Ma'lum qisqartmalar → o'zbekcha talaffuz (Yandex "IT" ni "it" deb o'qib qo'yardi).
 # Faqat SHU RO'YXATDAGILAR o'zgaradi (UTY/DAS kabi brend nomlariga tegmaydi).
-_ABBR = {"IT": "ay-ti", "AI": "ey-ay", "IP": "ay-pi", "GPS": "ji-pi-es",
-         "SMS": "es-em-es", "USB": "yu-es-bi", "PDF": "pi-di-ef", "HR": "eych-ar",
-         "VIP": "vi-ay-pi", "SMM": "es-em-em"}
+# Ko'p ishlatiladigan qisqartmalar to'liq o'zbekcha atamaga ochiladi (eng tabiiy
+# talaffuz — Yandex qisqartmani buzmaydi). Qolganlari harflab o'qiladi.
+_ABBR = {"IT": "axborot texnologiyalari", "AI": "sun'iy intellekt",
+         "IP": "ay-pi", "GPS": "ji-pi-es", "SMS": "es-em-es", "USB": "yu-es-bi",
+         "PDF": "pi-di-ef", "HR": "eych-ar", "VIP": "vi-ay-pi", "SMM": "es-em-em"}
 _MONTHS = {1: "yanvar", 2: "fevral", 3: "mart", 4: "aprel", 5: "may", 6: "iyun",
            7: "iyul", 8: "avgust", 9: "sentyabr", 10: "oktyabr", 11: "noyabr", 12: "dekabr"}
 # Klass/poyezd kodidagi harf → o'qilishi (kiril va lotin).
