@@ -45,6 +45,11 @@ export function RealtimePage() {
   const [metrics, setMetrics] = useState<
     { stt: number; gpt: number; tts: number; video: number | null } | null
   >(null);
+  // Avto-suhbat (qo'lsiz): yoqilsa javob tugagach avtomatik qayta tinglaydi →
+  // uzluksiz aylanma suhbat (masalan boshqa AI bilan). Speak bosish shart emas.
+  const [auto, setAuto] = useState(false);
+  const autoRef = useRef(false);
+  useEffect(() => { autoRef.current = auto; }, [auto]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const idleRef = useRef<HTMLVideoElement | null>(null);
@@ -130,6 +135,7 @@ export function RealtimePage() {
           setError(String(data.message || "Xatolik"));
           setStatus("");
           setBusy(false);
+          autoRelisten(900);   // avto: nutq topilmadi/xato → qayta tinglash
         } else if (type === "done") {
           setBusy(false);
           setStatus("");
@@ -175,6 +181,21 @@ export function RealtimePage() {
     try { mediaRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
     mediaRef.current = null;
     if (ctxRef.current) { ctxRef.current.close().catch(() => {}); ctxRef.current = null; }
+  }
+
+  // Avto rejim: javob tugagach (yoki nutq topilmasa) qayta tinglashni boshlaydi.
+  function autoRelisten(delay = 500) {
+    if (!autoRef.current) return;
+    window.setTimeout(() => {
+      if (autoRef.current && !recordingRef.current) startRecording();
+    }, delay);
+  }
+  function toggleAuto() {
+    const next = !autoRef.current;
+    autoRef.current = next;
+    setAuto(next);
+    if (next && !recordingRef.current && !busy) startRecording();
+    else if (!next) stopCapture();
   }
 
   async function startRecording() {
@@ -306,6 +327,12 @@ export function RealtimePage() {
               ))}
             </select>
           )}
+          {/* Avto-suhbat: yoqilsa qo'lsiz (Speak bosmasdan) uzluksiz gaplashadi. */}
+          <button className={"rt-select" + (auto ? " rt-auto-on" : "")}
+            onClick={toggleAuto} title="Avto-suhbat (qo'lsiz)"
+            style={auto ? { background: "var(--brass)", color: "#fff", borderColor: "var(--brass)" } : undefined}>
+            {auto ? "● Avto" : "○ Avto"}
+          </button>
         </div>
       </div>
 
@@ -355,6 +382,7 @@ export function RealtimePage() {
                     setAnswerUrl(null);
                     setAnswerFading(false);
                   }, 300);
+                  autoRelisten(450);   // avto rejim: keyingi navbatni tinglash
                 }} />
             )}
             {(recording || busy) && (
