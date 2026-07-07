@@ -150,7 +150,7 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     # GPT — voice rejimi (to'liq, markdownsiz)
     if avatar:
         system_prompt, max_tokens = build_system_prompt(
-            avatar.get("persona", ""), "voice", _lang,
+            avatar.get("persona", ""), "voice", _lang, name=avatar.get("name", "Madina"),
         )
         temperature = float(avatar.get("temperature", 0.4))
     else:

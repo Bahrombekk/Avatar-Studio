@@ -224,9 +224,10 @@ def _now_block() -> str:
 
 
 def build_system_prompt(persona: str = "", resp_len: str = "short",
-                        language: str = "uz") -> tuple:
+                        language: str = "uz", name: str = "Madina") -> tuple:
     """Avatar personasi + tilidan to'liq system prompt + max_tokens quradi.
-    persona bo'sh bo'lsa — standart Madina prompti (+ til qoidasi)."""
+    persona bo'sh bo'lsa — standart prompt (ismi avatar NOMIga almashtiriladi:
+    aks holda har avatar o'zini 'Madina' deb tanishtirardi) + til qoidasi."""
     # ESLATMA: sonlar/sana/vaqtni so'zga o'girishni system prompt'ga QO'YMAYMIZ —
     # GPT javobni RAQAM bilan yozadi (ekranga toza), TTS'ga yuborishdan oldin
     # tts.normalize_uz_tts() lokal (tez) ravishda so'zga o'giradi (ekran≠ovoz).
@@ -238,10 +239,10 @@ def build_system_prompt(persona: str = "", resp_len: str = "short",
     lang_prefix = (lang_rule.strip() + "\n\n") if lang_rule else ""
     base = (persona or "").strip()
     if not base:
-        # Bo'sh persona: standart Madina prompti + tanlangan uzunlik qoidasi + til.
-        # (Ilgari max_tokens 90 ga QOTIRILGAN edi — javob chala kesilardi; tuzatildi.)
-        return (f"{lang_prefix}{SYSTEM_PROMPT}\n- {length_rule}{lang_rule}{_now_block()}",
-                max_tokens)
+        # Bo'sh persona: standart prompt. "Madina" → avatar NOMIga almashtiriladi
+        # (barcha "Madina" — yordamchining ismi; yaratuvchi DAS-UTY/Bahrombek, tegilmaydi).
+        sp = SYSTEM_PROMPT.replace("Madina", name) if name and name != "Madina" else SYSTEM_PROMPT
+        return (f"{lang_prefix}{sp}\n- {length_rule}{lang_rule}{_now_block()}", max_tokens)
     prompt = (
         f"{lang_prefix}"
         f"{base}\n\n"

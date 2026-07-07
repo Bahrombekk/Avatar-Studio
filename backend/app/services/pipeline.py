@@ -24,7 +24,7 @@ def _avatar_params(avatar):
     if not avatar:
         return SYSTEM_PROMPT, 0.4, 90, 25, None
     sp, mt = build_system_prompt(avatar.get("persona", ""), avatar.get("respLen", "short"),
-                                 avatar.get("language", "uz"))
+                                 avatar.get("language", "uz"), name=avatar.get("name", "Madina"))
     temp = float(avatar.get("temperature", 0.4))
     fps = int(avatar.get("fps", 25)) or 25
     return sp, temp, mt, fps, avatar.get("id")
