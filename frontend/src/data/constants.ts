@@ -18,6 +18,7 @@ export const VOICES: Voice[] = [
   { id: "ru_filipp", name: "Filipp", lang: "Rus", langCode: "ru", gender: "Erkak", tag: "Yandex", provider: "yandex" },
   { id: "ru_alena",  name: "Alyona", lang: "Rus", langCode: "ru", gender: "Ayol", tag: "Yandex", provider: "yandex" },
   { id: "ru_omazh",  name: "Omazh", lang: "Rus", langCode: "ru", gender: "Ayol", tag: "Yandex", provider: "yandex" },
+  { id: "ru_marina", name: "Marina", lang: "Rus", langCode: "ru", gender: "Ayol", tag: "Yandex v3", provider: "yandex_v3" },
   // Ingliz
   { id: "en_guy",  name: "Guy",  lang: "Ingliz", langCode: "en", gender: "Erkak", tag: "Edge", provider: "edge" },
   { id: "en_aria", name: "Aria", lang: "Ingliz", langCode: "en", gender: "Ayol", tag: "Edge", provider: "edge" },

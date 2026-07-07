@@ -39,6 +39,9 @@ VOICES = {
                   "label": "Alyona (Yandex)", "speed": 1.0, "smooth_af": _YX_SMOOTH},
     "ru_omazh":  {"provider": "yandex", "voice": "omazh", "lang": "ru-RU",
                   "label": "Omazh (Yandex)", "speed": 1.0, "smooth_af": _YX_SMOOTH},
+    "ru_marina": {"provider": "yandex_v3", "voice": "marina", "lang": "ru-RU",
+                  "label": "Marina (Yandex v3)", "speed": 1.0, "smooth_af": _YX_SMOOTH,
+                  "role": "neutral"},
     # ── Ingliz ──
     "en_guy":  {"provider": "edge", "voice": "en-US-GuyNeural",  "label": "Guy (edge)"},
     "en_aria": {"provider": "edge", "voice": "en-US-AriaNeural", "label": "Aria (edge)"},
@@ -50,7 +53,7 @@ VOICES = {
 DEFAULT_VOICE = "madina"
 
 # Til → o'sha til uchun standart ovoz (avatar.langVoices bermasa fallback).
-_LANG_DEFAULT_VOICE = {"uz": "madina", "en": "en_ava", "ru": "ru_omazh", "kk": "kk_aigul"}
+_LANG_DEFAULT_VOICE = {"uz": "madina", "en": "en_ava", "ru": "ru_marina", "kk": "kk_aigul"}
 _UZ_VOICES = {"madina", "sardor", "nigora", "yulduz"}
 
 
