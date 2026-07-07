@@ -64,10 +64,13 @@ async def lifespan(app: FastAPI):
             warmup()
             # Real avatarlar artefaktini (200 kadr/mask) keshga oldindan yuklaymiz —
             # foydalanuvchining BIRINCHI savoli sekin bo'lmasligi uchun.
+            _first_real = None
             try:
                 from app.services import avatar_store, musetalk
                 for av in avatar_store.list_avatars():
                     if av.get("real"):
+                        if _first_real is None:
+                            _first_real = av["id"]
                         # Native + studio (use_max_dim) + JONLI (rt_max_dim, past
                         # rezolyutsiya) variantlarni isitamiz — birinchi real-time
                         # so'rov artefakt resize narxini to'lamasin (TTFF past).
@@ -75,6 +78,35 @@ async def lifespan(app: FastAPI):
                         preload_artifact(av["id"], musetalk.rt_max_dim(av))
             except Exception as e:
                 log.warning("artefakt preload xato: %s", e)
+            # Stream (real-time) yo'lini isitamiz — low-latency nvenc enkoder + oqim
+            # birinchi JONLI so'rovda JIT bo'lmasin (sovuq-start TTFF ~9s edi).
+            try:
+                from app.services import musetalk
+                if _first_real:
+                    musetalk.warmup_stream(_first_real)
+            except Exception as e:
+                log.warning("stream warmup xato: %s", e)
+            # TARMOQ ulanishlarini isitamiz — birinchi so'rov sovuq TLS/ulanish narxini
+            # to'lamasin (kuzatilgan: sovuq 1-so'rov ~9s, ko'p qismi GPT/TTS ulanish
+            # setup). Kichik so'rovlar (1 token / qisqa wav), alohida history_key.
+            try:
+                from app.services.gpt import ask_gpt
+                ask_gpt("salom", system_prompt="Bir so'z bilan javob ber.",
+                        max_tokens=1, history_key="__warmup__")
+                log.info("gpt ulanish isitildi", extra={"event": "gpt_warm"})
+            except Exception as e:
+                log.warning("gpt warmup xato: %s", e)
+            try:
+                from app.services.tts import tts, VOICES
+                import tempfile as _tf
+                _voice = "yulduz" if "yulduz" in VOICES else "madina"
+                _wt = _tf.NamedTemporaryFile(suffix=".wav", delete=False)
+                _wt.close()
+                tts("salom", _wt.name, voice=_voice)
+                os.remove(_wt.name)
+                log.info("tts ulanish isitildi", extra={"event": "tts_warm"})
+            except Exception as e:
+                log.warning("tts warmup xato: %s", e)
             # Jonli temir yo'l brauzer sessiyasini oldindan ochamiz (1-savol tez bo'lsin).
             try:
                 from app.services import railway

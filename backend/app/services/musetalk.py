@@ -616,6 +616,44 @@ def warmup():
     log.info("Warmup: %.1fs", time.time() - t, extra={"event": "warmup_done"})
 
 
+def warmup_stream(avatar_id: str):
+    """REAL-TIME stream yo'lini isitadi (low-latency nvenc enkoder + stream oqim
+    birinchi JONLI so'rovda JIT bo'lmasin). Kichik jim wav'ni queue orqali o'tkazib,
+    chiqishni tashlaymiz. Xato → jim o'tkazib yuboriladi (warmup majburiy emas)."""
+    import queue as _q
+    import tempfile
+    av = None
+    try:
+        from app.services import avatar_store
+        av = avatar_store.get_avatar(avatar_id)
+    except Exception:  # noqa: BLE001
+        pass
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp.close()
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+            "-t", "0.4", "-ar", "16000", "-ac", "1", tmp.name,
+        ], capture_output=True)
+        q: _q.Queue = _q.Queue()
+        q.put(tmp.name)
+        q.put(None)
+        t = time.time()
+        for _chunk in musetalk_infer_stream_queue(
+                q, fps=25, avatar_id=avatar_id, start_frame=0,
+                max_dim=rt_max_dim(av)):
+            pass
+        log.info("Stream warmup: %.1fs", time.time() - t,
+                 extra={"event": "stream_warm"})
+    except Exception as e:  # noqa: BLE001
+        log.warning("stream warmup xato: %s", e)
+    finally:
+        try:
+            os.remove(tmp.name)
+        except OSError:
+            pass
+
+
 def preload_artifact(avatar_id: str, max_dim=None) -> bool:
     """Avatar artefaktini (200 kadr/mask PNG) keshга oldindan yuklaydi.
 
