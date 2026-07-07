@@ -3,7 +3,7 @@ from fastapi import Header, HTTPException
 
 from app.core.auth import verify_token
 from app.services import avatar_store
-from app.services.tts import DEFAULT_VOICE
+from app.services.tts import DEFAULT_VOICE, voice_for
 
 
 def require_admin(authorization: str = Header(default="")):
@@ -28,6 +28,7 @@ def resolve(req):
     """
     avatar = avatar_store.get_avatar(req.avatar_id) if req.avatar_id else None
     voice = req.voice
-    if avatar and req.voice == DEFAULT_VOICE and avatar.get("voice"):
-        voice = avatar["voice"]
+    # Ovoz aniq berilmagan (default) bo'lsa — avatar tiliga mos ovoz (langVoices > ...).
+    if avatar and req.voice == DEFAULT_VOICE:
+        voice = voice_for(avatar, avatar.get("language", "uz"))
     return avatar, voice

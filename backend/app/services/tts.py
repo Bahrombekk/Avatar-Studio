@@ -46,6 +46,33 @@ VOICES = {
 }
 DEFAULT_VOICE = "madina"
 
+# Til → o'sha til uchun standart ovoz (avatar.langVoices bermasa fallback).
+_LANG_DEFAULT_VOICE = {"uz": "madina", "en": "en_aria", "ru": "ru_svetlana", "kk": "kk_aigul"}
+_UZ_VOICES = {"madina", "sardor", "nigora", "yulduz"}
+
+
+def voice_for(avatar: dict, language: str = None) -> str:
+    """Avatar + til uchun samarali ovoz. Ustuvorlik:
+      1) avatar.langVoices[til]  (foydalanuvchi har tilga oldindan tanlagan ovoz)
+      2) avatar.voice — agar u tanlangan tilga mos bo'lsa
+      3) o'sha til uchun standart ovoz (_LANG_DEFAULT_VOICE)
+      4) avatar.voice (oxirgi fallback)
+    Shunday qilib 'til=ingliz' → inglizcha ovoz, o'zbekcha normalizatsiya o'zi o'chadi."""
+    av = avatar or {}
+    lang = (language or av.get("language") or "uz").lower()
+    lv = (av.get("langVoices") or {}).get(lang)
+    if lv and lv in VOICES:
+        return lv
+    main = av.get("voice") or DEFAULT_VOICE
+    spec = VOICES.get(main) or {}
+    vlang = (spec.get("lang", "") or "").lower()
+    main_is_uz = main in _UZ_VOICES
+    if lang == "uz" and main_is_uz:
+        return main
+    if lang != "uz" and (f"{lang}-" in vlang or main.startswith(f"{lang}_")):
+        return main
+    return _LANG_DEFAULT_VOICE.get(lang, main)
+
 # ── Dinamik emotsiya (jumla mazmuniga qarab rol/ohang) ──
 # Qaysi ovozlar Yandex v3 rollarini qo'llaydi va qaysi rollar xavfsiz.
 # (yulduz: neutral|strict|friendly|whisper — boshqa rollar HTTP 400 beradi.)

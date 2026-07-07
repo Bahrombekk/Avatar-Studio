@@ -38,7 +38,7 @@ JAVOB USLUBI (real-time video uchun qisqalik muhim, lekin JONLI bo'lsin):
 - Qisqa: odatda 1-2 qisqa jumla (tabiiy bo'lsa oxirida bitta qisqa savol)
 - Har bir jumla ~14 so'zdan oshmasin; ro'yxat/markdown/ortiqcha kirish so'zi yo'q
 - "batafsil" yoki "to'liqroq" deyilsa → eng ko'pi 3-4 qisqa jumla
-- O'zbek tilida, iliq va do'stona ohangda
+- Iliq va do'stona ohangda
 - Narxlarni "yo'nalishga qarab farq qiladi" deb umumiy ayting
 
 SUHBATNI JONLI TUTISH (jalb qilish — juda muhim):
@@ -154,20 +154,27 @@ _RESP_LEN = {
 }
 
 
-# Til kodi → (nomi, "har doim shu tilda javob ber" ko'rsatmasi).
 _LANG_NAMES = {"uz": "o'zbek", "ru": "rus", "en": "ingliz", "kk": "qozoq"}
+
+# Majburiy til qoidasi — MAQSAD TILINING O'ZIDA yozilgan (GPT o'sha tilga aniq
+# qulflansin; o'zbekcha yozilgan qoida o'zbekcha javobga tortib qolardi). Butun
+# system prompt o'zbekcha bo'lgani uchun uz-avatar uchun qoida SHART EMAS ("").
+_LANG_RULE = {
+    "en": ("\n\nCRITICAL LANGUAGE RULE: You MUST always reply ONLY in English, "
+           "no matter what language the user writes or speaks in. Never answer in "
+           "Uzbek or any other language — English only."),
+    "ru": ("\n\nВАЖНОЕ ПРАВИЛО ЯЗЫКА: Всегда отвечай ТОЛЬКО на русском языке, "
+           "независимо от того, на каком языке пишет или говорит пользователь. "
+           "Никогда не отвечай на узбекском."),
+    "kk": ("\n\nМАҢЫЗДЫ ТІЛ ЕРЕЖЕСІ: Пайдаланушы қай тілде жазса да, ӘРҚАШАН ТЕК "
+           "қазақ тілінде жауап бер. Ешқашан өзбек тілінде жауап берме."),
+}
 
 
 def _lang_rule(language: str) -> str:
-    """Avatar tili uchun majburiy til qoidasi. uz — standart (qo'shimcha shart yo'q)."""
-    code = (language or "uz").lower()
-    name = _LANG_NAMES.get(code)
-    if not name or code == "uz":
-        return ""
-    return (
-        f"\n\nMUHIM TIL QOIDASI: Foydalanuvchi qaysi tilda yozishidan qat'i nazar, "
-        f"HAR DOIM va FAQAT {name} tilida javob bering."
-    )
+    """Avatar tili uchun majburiy til qoidasi (maqsad tilida yozilgan).
+    uz — standart (prompt o'zbekcha, qo'shimcha shart yo'q)."""
+    return _LANG_RULE.get((language or "uz").lower(), "")
 
 
 _UZ_DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
@@ -210,7 +217,7 @@ def build_system_prompt(persona: str = "", resp_len: str = "short",
         f"JAVOB USLUBI (real-time video uchun muhim):\n"
         f"- {length_rule}\n"
         f"- Ro'yxat/markdown/ortiqcha kirish so'zisiz, to'g'ridan-to'g'ri javob bering\n"
-        f"- Foydalanuvchi tilida, iliq va do'stona ohangda\n\n"
+        f"- Iliq va do'stona ohangda\n\n"
         f"SUHBATNI JONLI TUTISH (jalb qilish — muhim):\n"
         f"- Quruq javob mashinasi emas, TIRIK, qiziquvchan suhbatdosh bo'ling — iliq, samimiy\n"
         f"- Tabiiy joyda javob oxirida QISQA tegishli savol bering (suhbat uzilmasin; har safar emas)\n"

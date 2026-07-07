@@ -108,7 +108,11 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     """
     avatar = avatar_store.get_avatar(avatar_id) if avatar_id else None
     history_key = session_id or avatar_id
-    use_voice = voice or (avatar or {}).get("voice", "madina")
+    _lang = (avatar or {}).get("language", "uz")
+    # Ovoz: avatar tiliga mos (langVoices[til] > tilga mos asosiy > til-default).
+    # 'til=ingliz' → inglizcha ovoz + o'zbekcha normalizatsiya o'zi o'chadi.
+    from app.services.tts import voice_for
+    use_voice = voice or voice_for(avatar, _lang)
     # Realtime fps: avatar.json fps (default 25). RT_FPS env bilan PASTGA cheklash
     # mumkin (zaif GPU / Spark uchun) — kadr soni kamayib GPU (asosan VAE) yengillashadi,
     # video o'ynash tezligiga ulguradi. Studio (offline) to'liq fps'da qoladi.
