@@ -11,6 +11,12 @@ _ONES = ["", "bir", "ikki", "uch", "to'rt", "besh", "olti", "yetti", "sakkiz", "
 _TENS = ["", "o'n", "yigirma", "o'ttiz", "qirq", "ellik", "oltmish", "yetmish", "sakson", "to'qson"]
 _UNITS = {"km/soat": "kilometr soatiga", "km": "kilometr", "kg": "kilogramm",
           "sm": "santimetr", "mm": "millimetr", "ml": "millilitr", "kv.m": "kvadrat metr"}
+
+# Ma'lum qisqartmalar → o'zbekcha talaffuz (Yandex "IT" ni "it" deb o'qib qo'yardi).
+# Faqat SHU RO'YXATDAGILAR o'zgaradi (UTY/DAS kabi brend nomlariga tegmaydi).
+_ABBR = {"IT": "ay-ti", "AI": "ey-ay", "IP": "ay-pi", "GPS": "ji-pi-es",
+         "SMS": "es-em-es", "USB": "yu-es-bi", "PDF": "pi-di-ef", "HR": "eych-ar",
+         "VIP": "vi-ay-pi", "SMM": "es-em-em"}
 _MONTHS = {1: "yanvar", 2: "fevral", 3: "mart", 4: "aprel", 5: "may", 6: "iyun",
            7: "iyul", 8: "avgust", 9: "sentyabr", 10: "oktyabr", 11: "noyabr", 12: "dekabr"}
 # Klass/poyezd kodidagi harf → o'qilishi (kiril va lotin).
@@ -128,6 +134,10 @@ def normalize_uz_tts(text: str) -> str:
     #     bir xil birliklar (bir harfli m/g/t xavfli — tegilmaydi).
     text = re.sub(r"(?<=\d)\s*(km/soat|km|kg|sm|mm|ml|kv\.m)\b",
                   lambda m: " " + _UNITS[m.group(1)], text)
+    # 3d) Ma'lum qisqartmalar → talaffuz (IT→"ay-ti"). Faqat _ABBR ro'yxatidagilar,
+    #     to'liq so'z sifatida (registrga sezgir — kichik "it" so'ziga tegmaydi).
+    text = re.sub(r"\b(" + "|".join(_ABBR) + r")\b",
+                  lambda m: _ABBR[m.group(1)], text)
     # 4) Narx/son: bo'shliqli guruh (300 560) yoki oddiy son → so'z.
     text = re.sub(r"\d{1,3}(?:[  ]\d{3})+|\d+", _num, text)
     return text

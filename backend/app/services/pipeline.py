@@ -92,7 +92,8 @@ def run_pipeline(user_message: str, voice: str = DEFAULT_VOICE, avatar: dict = N
 
         t1 = time.time()
         reply = ask_gpt(user_message, system_prompt=system_prompt,
-                        temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
+                        temperature=temperature, max_tokens=max_tokens, history_key=hist_key,
+                        lang=(avatar or {}).get("language", "uz"))
         t_gpt = round(time.time() - t1, 2)
         log.info("[gpt] %ss → %s", t_gpt, reply[:60], extra={"stage": "gpt", "dur_s": t_gpt})
 
@@ -177,7 +178,8 @@ def run_pipeline_stream(user_message: str, voice: str = DEFAULT_VOICE, avatar: d
 
         t1 = time.time()
         reply = ask_gpt(user_message, system_prompt=system_prompt,
-                        temperature=temperature, max_tokens=max_tokens, history_key=hist_key)
+                        temperature=temperature, max_tokens=max_tokens, history_key=hist_key,
+                        lang=(avatar or {}).get("language", "uz"))
         t_gpt = round(time.time() - t1, 2)
         log.info("[gpt] %ss → %s", t_gpt, reply[:60], extra={"stage": "gpt", "dur_s": t_gpt})
         yield {"type": "text", "text": reply, "gpt_time": t_gpt, "sid": sid}

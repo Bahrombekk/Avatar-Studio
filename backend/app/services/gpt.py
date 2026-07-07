@@ -177,6 +177,22 @@ def _lang_rule(language: str) -> str:
     return _LANG_RULE.get((language or "uz").lower(), "")
 
 
+# Qisqa, keskin "oxirgi" til direktivi — ALOHIDA system-xabar sifatida (foydalanuvchi
+# xabaridan KEYIN) yuboriladi. SABAB: butun prompt + foydalanuvchi gapi o'zbekcha
+# bo'lsa, GPT-4o-mini prompt ichidagi til qoidasini e'tiborsiz qoldirib o'zbekcha
+# javob berardi; generatsiyaga eng yaqin alohida xabar esa ishonchli bajariladi.
+_LANG_FINAL = {
+    "en": "Reply ONLY in English, regardless of the user's language.",
+    "ru": "Отвечай ТОЛЬКО на русском языке, независимо от языка пользователя.",
+    "kk": "Тек қазақ тілінде жауап бер, пайдаланушының тіліне қарамастан.",
+}
+
+
+def _lang_final_msg(language: str):
+    d = _LANG_FINAL.get((language or "uz").lower())
+    return {"role": "system", "content": d} if d else None
+
+
 _UZ_DAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
 _UZ_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust",
               "sentabr", "oktabr", "noyabr", "dekabr"]
@@ -207,12 +223,18 @@ def build_system_prompt(persona: str = "", resp_len: str = "short",
     # tts.normalize_uz_tts() lokal (tez) ravishda so'zga o'giradi (ekran≠ovoz).
     length_rule, max_tokens = _RESP_LEN.get(resp_len, _RESP_LEN["short"])
     lang_rule = _lang_rule(language)
+    # Til qoidasi prompt BOSHIGA HAM qo'yiladi (nafaqat oxiriga) — butun prompt
+    # o'zbekcha bo'lgani uchun faqat oxirdagi qoida kuchsiz edi (GPT o'zbekchага
+    # tortib qolardi). LLM boshdagi ko'rsatmani eng kuchli tutadi.
+    lang_prefix = (lang_rule.strip() + "\n\n") if lang_rule else ""
     base = (persona or "").strip()
     if not base:
         # Bo'sh persona: standart Madina prompti + tanlangan uzunlik qoidasi + til.
         # (Ilgari max_tokens 90 ga QOTIRILGAN edi — javob chala kesilardi; tuzatildi.)
-        return f"{SYSTEM_PROMPT}\n- {length_rule}{lang_rule}{_now_block()}", max_tokens
+        return (f"{lang_prefix}{SYSTEM_PROMPT}\n- {length_rule}{lang_rule}{_now_block()}",
+                max_tokens)
     prompt = (
+        f"{lang_prefix}"
         f"{base}\n\n"
         f"JAVOB USLUBI (real-time video uchun muhim):\n"
         f"- {length_rule}\n"
@@ -239,14 +261,18 @@ def build_system_prompt(persona: str = "", resp_len: str = "short",
 
 def ask_gpt(user_message: str, system_prompt: str = SYSTEM_PROMPT,
             temperature: float = 0.4, max_tokens: int = 90,
-            history_key=None) -> str:
+            history_key=None, lang: str = None) -> str:
     hist = _history_for(history_key)
     hist.append({"role": "user", "content": user_message})
+    msgs = [{"role": "system", "content": system_prompt}] + hist
+    _fm = _lang_final_msg(lang)   # non-uz til → oxirgi keskin direktiv
+    if _fm:
+        msgs = msgs + [_fm]
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         max_tokens=max_tokens,
         temperature=temperature,
-        messages=[{"role": "system", "content": system_prompt}] + hist,
+        messages=msgs,
     )
     reply = resp.choices[0].message.content.strip()
     hist.append({"role": "assistant", "content": reply})
@@ -386,7 +412,7 @@ def analyze_script(text: str, language: str = "uz") -> dict:
 
 def ask_gpt_stream(user_message: str, system_prompt: str = SYSTEM_PROMPT,
                    temperature: float = 0.4, max_tokens: int = 90,
-                   history_key=None):
+                   history_key=None, lang: str = None):
     """ask_gpt'ning token-oqim varianti: javob bo'laklarini (delta) yieldlaydi.
 
     Frontend matnni jonli (yozilayotgandek) ko'rsatadi → his qilinadigan kechikish
@@ -394,11 +420,15 @@ def ask_gpt_stream(user_message: str, system_prompt: str = SYSTEM_PROMPT,
     to'liq iste'mol qilinishi shart — session.py shuni qiladi)."""
     hist = _history_for(history_key)
     hist.append({"role": "user", "content": user_message})
+    msgs = [{"role": "system", "content": system_prompt}] + hist
+    _fm = _lang_final_msg(lang)   # non-uz til → oxirgi keskin direktiv
+    if _fm:
+        msgs = msgs + [_fm]
     stream = client.chat.completions.create(
         model="gpt-4o-mini",
         max_tokens=max_tokens,
         temperature=temperature,
-        messages=[{"role": "system", "content": system_prompt}] + hist,
+        messages=msgs,
         stream=True,
     )
     parts = []

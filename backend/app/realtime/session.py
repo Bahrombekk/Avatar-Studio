@@ -235,7 +235,7 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     try:
         for delta in ask_gpt_stream(user_text, system_prompt=system_prompt,
                                     temperature=temperature, max_tokens=max_tokens,
-                                    history_key=history_key):
+                                    history_key=history_key, lang=_lang):
             if ttft is None:
                 ttft = round(time.time() - t, 2)
             parts.append(delta)
