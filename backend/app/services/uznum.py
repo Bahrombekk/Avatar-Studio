@@ -19,6 +19,10 @@ _UNITS = {"km/soat": "kilometr soatiga", "km": "kilometr", "kg": "kilogramm",
 _ABBR = {"IT": "axborot texnologiyalari", "AI": "sun'iy intellekt",
          "IP": "ay-pi", "GPS": "ji-pi-es", "SMS": "es-em-es", "USB": "yu-es-bi",
          "PDF": "pi-di-ef", "HR": "eych-ar", "VIP": "vi-ay-pi", "SMM": "es-em-em"}
+
+# Yandex o'zbek ovozi ba'zi so'zlarni buzib o'qiydi — TTS uchun to'g'ri talaffuzga
+# yoziladi (ekranda ASL so'z qoladi). Registrsiz, to'liq so'z sifatida.
+_PRON = {"virtual": "virtuual"}
 _MONTHS = {1: "yanvar", 2: "fevral", 3: "mart", 4: "aprel", 5: "may", 6: "iyun",
            7: "iyul", 8: "avgust", 9: "sentyabr", 10: "oktyabr", 11: "noyabr", 12: "dekabr"}
 # Klass/poyezd kodidagi harf → o'qilishi (kiril va lotin).
@@ -140,6 +144,9 @@ def normalize_uz_tts(text: str) -> str:
     #     to'liq so'z sifatida (registrga sezgir — kichik "it" so'ziga tegmaydi).
     text = re.sub(r"\b(" + "|".join(_ABBR) + r")\b",
                   lambda m: _ABBR[m.group(1)], text)
+    # 3e) So'z talaffuzini tuzatish (virtual→virtuual). Registrsiz, to'liq so'z.
+    text = re.sub(r"\b(" + "|".join(_PRON) + r")\b",
+                  lambda m: _PRON[m.group(0).lower()], text, flags=re.IGNORECASE)
     # 4) Narx/son: bo'shliqli guruh (300 560) yoki oddiy son → so'z.
     text = re.sub(r"\d{1,3}(?:[  ]\d{3})+|\d+", _num, text)
     return text
