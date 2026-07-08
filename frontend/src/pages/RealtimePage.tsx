@@ -67,6 +67,11 @@ export function RealtimePage() {
   const procRef = useRef<ScriptProcessorNode | null>(null);
   const mediaRef = useRef<MediaStream | null>(null);
   const recordingRef = useRef(false);
+  // Tugma ichidagi mini-waveform — ovoz sathi (mikrofon RMS + avatar audio analyser).
+  const micLevelRef = useRef(0);       // foydalanuvchi mikrofon sathi (0..~0.15)
+  const avatarLevelRef = useRef(0);    // avatar ovozi sathi (analyser RMS 0..~0.4)
+  const waveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const phaseRef = useRef<"idle" | "listening" | "thinking" | "speaking">("idle");
 
   // WebSocket
   useEffect(() => {
@@ -176,6 +181,7 @@ export function RealtimePage() {
 
   function stopCapture() {
     recordingRef.current = false;
+    micLevelRef.current = 0;
     try { procRef.current?.disconnect(); } catch { /* ignore */ }
     procRef.current = null;
     try { mediaRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
@@ -260,6 +266,7 @@ export function RealtimePage() {
       let sum = 0;
       for (let i = 0; i < f32.length; i++) sum += f32[i] * f32[i];
       const rms = Math.sqrt(sum / f32.length);
+      micLevelRef.current = rms;   // orb vizualizator uchun jonli sath
       const now = performance.now();
       if (rms > THRESH) { speech = true; silenceStart = 0; }
       else if (speech) {
@@ -301,42 +308,143 @@ export function RealtimePage() {
 
   useEffect(() => () => { stopCapture(); }, []);
 
+  // ── Orb holati: tinglash / o'ylash / gapirish / bo'sh ────────────────────
+  useEffect(() => {
+    phaseRef.current = recording ? "listening"
+      : answerUrl ? "speaking"
+      : busy ? "thinking" : "idle";
+  }, [recording, answerUrl, busy]);
+
+  // ── Avatar ovozi analyser: javob videosi audiosini o'lchab orb'ni tebratadi.
+  //    Video key={answerUrl} bilan qayta ulanadi → har javobda yangi DOM node,
+  //    shuning uchun createMediaElementSource (element uchun bir marta) xato bermaydi. */
+  useEffect(() => {
+    if (!answerUrl) { avatarLevelRef.current = 0; return; }
+    const v = answerRef.current;
+    if (!v) return;
+    let ctx: AudioContext | null = null;
+    let src: MediaElementAudioSourceNode | null = null;
+    let analyser: AnalyserNode | null = null;
+    let raf = 0;
+    try {
+      const Ctx = window.AudioContext
+        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      ctx = new Ctx();
+      ctx.resume().catch(() => {});
+      src = ctx.createMediaElementSource(v);
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      analyser.connect(ctx.destination);   // audio o'chib qolmasin — chiqishga ulaymiz
+      const data = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        analyser!.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) { const x = (data[i] - 128) / 128; sum += x * x; }
+        avatarLevelRef.current = Math.sqrt(sum / data.length);
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch { /* analyser bo'lmasa orb sintetik "gapirish" bilan jonlanadi */ }
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      try { src?.disconnect(); analyser?.disconnect(); } catch { /* ignore */ }
+      try { ctx?.close(); } catch { /* ignore */ }
+      avatarLevelRef.current = 0;
+    };
+  }, [answerUrl]);
+
+  // ── Mini-waveform (CTA tugma ichida) — ovozga reaktiv ekvalayzer chiziqlari. */
+  useEffect(() => {
+    const canvas = waveCanvasRef.current;
+    if (!canvas) return;
+    const g = canvas.getContext("2d");
+    if (!g) return;
+    let raf = 0;
+    const N = 16;                        // ustunlar soni
+    const smooth = new Array(N).fill(0.15);
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const cw = canvas.clientWidth, ch = canvas.clientHeight;
+      if (!cw || !ch) return;
+      if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+        canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+      }
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, cw, ch);
+      const t = performance.now();
+      const phase = phaseRef.current;
+      let level: number;
+      if (phase === "listening") level = Math.min(micLevelRef.current * 7, 1);
+      else if (phase === "speaking") level = Math.min(avatarLevelRef.current * 3.2, 1);
+      else if (phase === "thinking") level = 0.3 + 0.2 * Math.sin(t / 280);
+      else level = 0.16;
+      const bw = cw / N;
+      for (let i = 0; i < N; i++) {
+        // Har ustun o'z fazasida tebranadi; ovoz sathi amplitudani boshqaradi.
+        const osc = 0.35 + 0.65 * Math.abs(Math.sin(t / (160 + i * 23) + i * 1.7));
+        const target = Math.max(0.1, Math.min(1, level * (0.5 + osc)));
+        smooth[i] += (target - smooth[i]) * 0.25;
+        const h = Math.max(2, smooth[i] * ch * 0.92);
+        const x = i * bw + bw * 0.28;
+        g.fillStyle = "rgba(255,255,255,.85)";
+        const r = Math.min(bw * 0.22, 2);
+        const y = (ch - h) / 2;
+        g.beginPath();
+        // roundRect hamma brauzerda bor (Chrome 99+); fallback oddiy rect.
+        if (g.roundRect) g.roundRect(x, y, bw * 0.44, h, r);
+        else g.rect(x, y, bw * 0.44, h);
+        g.fill();
+      }
+    };
+    draw();
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, [avatar?.id]);
+
   const toggleMic = () => (recording ? stopRecording() : startRecording());
 
   return (
     <div className="rt-wrap">
-      {/* Ambient fon — avatar rasmidan olingan xira, sekin jonlanuvchi (butun ekran). */}
-      {avatar && (
-        <div className="rt-ambient"
-          style={{ backgroundImage: `url(${API.photoUrl(avatar.id)})` }} aria-hidden />
-      )}
       <div className="rt-top">
-        <div className="rt-brand"><I.layers size={18} /> Avatar Studio · <span>{tr("app.live")}</span></div>
+        <div className="rt-brand">
+          <span className="rt-brand-ic"><I.layers size={15} /></span>
+          <b>Avatar Studio</b>
+          <span className="rt-brand-div" aria-hidden />
+          <span className="rt-brand-page">{tr("app.live")}</span>
+        </div>
         <div className="rt-top-r">
-          <span className={"rt-dot" + (connected ? " on" : "")} />
-          <span className="rt-conn">{connected ? tr("conn.connected") : tr("conn.connecting")}</span>
+          <span className={"rt-pill rt-conn-pill" + (connected ? " on" : "")}>
+            <span className="rt-pill-dot" />{connected ? tr("conn.connected") : tr("conn.connecting")}
+          </span>
           {/* Suhbat tili: tanlansa Maftuna shu tilda + shu tilga tanlangan ovoz bilan
               gapiradi (WS qayta ulanadi). Interfeys tili ham shunga moslanadi. */}
-          <select className="rt-select" value={effLang}
-            onChange={(e) => { setConvLang(e.target.value); setTweak("uiLang", e.target.value); }}
-            aria-label="Suhbat tili / Language">
-            {LANGS.map((l) => (
-              <option key={l.id} value={l.id}>{l.label}</option>
-            ))}
-          </select>
-          {ready.length > 0 && (
-            <select className="rt-select" value={avatar?.id || ""}
-              onChange={(e) => setAvatarId(e.target.value)}>
-              {ready.map((a) => (
-                <option key={a.id} value={a.id}>{a.name} · {a.voice}</option>
+          <label className="rt-pill rt-pill-sel" title="Suhbat tili / Language">
+            <I.globe size={14} />
+            <select value={effLang}
+              onChange={(e) => { setConvLang(e.target.value); setTweak("uiLang", e.target.value); }}
+              aria-label="Suhbat tili / Language">
+              {LANGS.map((l) => (
+                <option key={l.id} value={l.id}>{l.label}</option>
               ))}
             </select>
+            <span className="rt-pill-chev" aria-hidden>▾</span>
+          </label>
+          {ready.length > 0 && avatar && (
+            <label className="rt-pill rt-pill-sel" title="Avatar">
+              <img className="rt-pill-ava" src={API.photoUrl(avatar.id)} alt="" />
+              <select value={avatar.id} onChange={(e) => setAvatarId(e.target.value)}>
+                {ready.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name} · {a.voice}</option>
+                ))}
+              </select>
+              <span className="rt-pill-chev" aria-hidden>▾</span>
+            </label>
           )}
           {/* Avto-suhbat: yoqilsa qo'lsiz (Speak bosmasdan) uzluksiz gaplashadi. */}
-          <button className={"rt-select" + (auto ? " rt-auto-on" : "")}
-            onClick={toggleAuto} title="Avto-suhbat (qo'lsiz)"
-            style={auto ? { background: "var(--brass)", color: "#fff", borderColor: "var(--brass)" } : undefined}>
-            {auto ? "● Avto" : "○ Avto"}
+          <button className={"rt-pill rt-avto" + (auto ? " on" : "")}
+            onClick={toggleAuto} title="Avto-suhbat (qo'lsiz)">
+            {auto ? "●" : "○"} Avto
           </button>
         </div>
       </div>
@@ -350,11 +458,14 @@ export function RealtimePage() {
       ) : (
         <div className="rt-stage">
           <div className={"rt-avatar" + (busy ? " busy" : "") + (recording ? " listening" : "")}>
+            {/* Orqa qatlam: o'sha rasmning xira versiyasi — video "contain" bo'lganda
+                yon bo'shliqlarni to'ldiradi (yuz zoom bo'lmaydi, full-bleed saqlanadi). */}
+            <div className="rt-avatar-bg" style={{ backgroundImage: `url(${API.photoUrl(avatar.id)})` }} aria-hidden />
             <img className="rt-media rt-base" src={API.photoUrl(avatar.id)} alt={avatar.name} />
             <video ref={idleRef} className="rt-media rt-idle" src={API.idleUrl(avatar.id)}
               loop muted autoPlay playsInline preload="auto" />
             {answerUrl && (
-              <video ref={answerRef}
+              <video ref={answerRef} key={answerUrl}
                 className={"rt-media rt-answer" + (answerFading ? " rt-fade" : "")}
                 src={answerUrl}
                 autoPlay playsInline preload="auto"
@@ -396,22 +507,59 @@ export function RealtimePage() {
                 {recording ? tr("rt.listeningShort") : tr("rt.thinkingShort")}
               </div>
             )}
-            <div className="rt-name">{avatar.name}<small>{avatar.role}</small></div>
+            {/* Online belgisi (chap-tepa) — ulanish holati. */}
+            <div className={"rt-online" + (connected ? " on" : "")}>
+              <span className="rt-online-dot" />{connected ? "Online" : "Offline"}
+            </div>
+            {/* Brend kartasi (chap-past) — avatar nomi + roli + sifat belgilari. */}
+            <div className="rt-badge">
+              <div className="rt-badge-logo"><I.layers size={16} /></div>
+              <div className="rt-badge-title">{avatar.name}</div>
+              <div className="rt-badge-sub">{avatar.role}</div>
+              <div className="rt-badge-chips">
+                <span><I.check size={11} /> Ishonchli</span>
+                <span><I.bolt size={11} /> Tezkor</span>
+                <span><I.star size={11} /> Aniq</span>
+              </div>
+            </div>
             {busy && <div className="rt-progress"><div className="ed-progress-bar" /></div>}
           </div>
 
           <div className="rt-side">
-            <div className="rt-log">
-              {turns.length === 0 && (
-                <div className="rt-hint">{tr("rt.hint")}</div>
-              )}
-              {turns.map((t, i) => (
-                <div key={i} className={"rt-turn " + t.role}>
-                  <span className="rt-turn-who">{t.role === "user" ? tr("you") : avatar.name}</span>
-                  <span className="rt-turn-text">{t.text}</span>
+            {turns.length === 0 ? (
+              /* Xush kelibsiz paneli — suhbat boshlanmaguncha (mockup uslubi). */
+              <div className="rt-welcome">
+                <h1>Assalomu alaykum! <span className="rt-w-wave">👋</span></h1>
+                <p className="rt-w-sub">
+                  Men {avatar.name} — O'zbekiston Temir Yo'llari sun'iy intellekt yordamchisiman.<br />
+                  Men sizga quyidagi yo'nalishlarda yordam bera olaman:
+                </p>
+                <div className="rt-cards">
+                  {[
+                    { ic: <I.grid size={17} />, cls: "c1", t: "Poyezdlar va chiptalar", s: "Yo'nalishlar, narxlar, jadval" },
+                    { ic: <I.bolt size={17} />, cls: "c2", t: "Afrosiyob tezyurar", s: "Toshkent–Samarqand–Buxoro" },
+                    { ic: <I.copy size={17} />, cls: "c3", t: "Hujjatlar", s: "Kerakli hujjatlar va ma'lumotlar" },
+                    { ic: <I.clock size={17} />, cls: "c4", t: "Jadval va yo'nalishlar", s: "Jo'nash va yetib borish vaqtlari" },
+                    { ic: <I.message size={17} />, cls: "c5", t: "Savollar", s: "Savollaringizga javob beraman" },
+                  ].map((c) => (
+                    <button key={c.t} className="rt-card"
+                      onClick={() => { if (!busy && !recording) startRecording(); }}>
+                      <span className={"rt-card-ic " + c.cls}>{c.ic}</span>
+                      <span className="rt-card-tx"><b>{c.t}</b><small>{c.s}</small></span>
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="rt-log">
+                {turns.map((t, i) => (
+                  <div key={i} className={"rt-turn " + t.role + (t.streaming ? " streaming" : "")}>
+                    <span className="rt-turn-who">{t.role === "user" ? tr("you") : avatar.name}</span>
+                    <span className="rt-turn-text">{t.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {error && <div className="rt-err"><I.x size={13} /> {error}</div>}
             {status && !error && <div className="rt-status">{status}</div>}
@@ -429,10 +577,18 @@ export function RealtimePage() {
               </div>
             )}
 
-            <button className={"rt-mic" + (recording ? " rec" : "")} onClick={toggleMic}
+            {turns.length === 0 && !recording && !busy && (
+              <div className="rt-hintbar">✦ Gapirishni boshlash uchun pastdagi tugmani bosing va gapiring.</div>
+            )}
+
+            <button className={"rt-cta" + (recording ? " rec" : "")} onClick={toggleMic}
               disabled={busy && !recording}>
-              <I.mic size={20} />
-              {recording ? tr("rt.stop") : busy ? tr("rt.thinking") : tr("rt.speak")}
+              <span className="rt-cta-ic"><I.mic size={18} /></span>
+              <span className="rt-cta-tx">
+                <b>{recording ? "Tinglanmoqda… (to'xtatish)" : busy ? tr("rt.thinking") : "Gapirishni boshlash"}</b>
+                <small>{recording ? "Gapirib bo'lgach o'zi to'xtaydi" : "Mikrofon tugmasini bosing va gapiring"}</small>
+              </span>
+              <canvas ref={waveCanvasRef} className="rt-cta-wave" aria-hidden />
             </button>
             <div className="rt-tip">Yandex streaming STT · {avatar.language?.toUpperCase()}</div>
           </div>

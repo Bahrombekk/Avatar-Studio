@@ -142,41 +142,48 @@
   background:transparent; color:var(--ink-3); cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .sb-logout:hover{ color:var(--err, #C0392B); border-color:var(--err, #C0392B); }
 
-.rt-brand{ display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-size:18px; color:var(--ink); }
-.rt-brand span{ color:var(--ink-3); font-size:14px; }
+/* Brend — plitka-logotip + nom + sahifa yorlig'i (mockup uslubi). */
+.rt-brand{ display:flex; align-items:center; gap:10px; color:var(--ink); }
+.rt-brand b{ font-family:var(--font-display); font-size:17px; font-weight:600; letter-spacing:-.2px; }
+.rt-brand-ic{ width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+  background:var(--navy); color:#fff; }
+.rt-brand-div{ width:1px; height:18px; background:var(--line-strong, var(--line)); }
+.rt-brand-page{ font-family:var(--font-mono); font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--ink-3); }
 
 /* ── Real-time ovozli suhbat sahifasi ── */
-.rt-wrap{ display:flex; flex-direction:column; height:100vh; min-height:0; padding:22px 26px; gap:18px; position:relative; overflow:hidden; }
-/* Ambient fon: avatar rasmidan olingan xira, sekin jonlanuvchi to'ldiruvchi (butun
-   ekran). Kontent (rt-top, rt-stage) uning ustida (z-index:1). */
-/* Ambient blur faqat CHAP 50% da — o'ng (oq) yarmga OSHIB KETMAYDI (overflow:hidden
-   qat'iy kesadi; zoom transform emas, background-size bilan → box'dan chiqmaydi). */
-.rt-ambient{ position:absolute; top:0; left:0; bottom:0; right:50%; z-index:0; overflow:hidden;
-  background-size:135%; background-position:center; filter:blur(72px) saturate(1.35) brightness(.97);
-  clip-path:inset(0); pointer-events:none; animation:rt-ambient 34s ease-in-out infinite; }
-.rt-ambient::after{ content:""; position:absolute; inset:0;
-  background:linear-gradient(180deg, rgba(247,244,236,.42), rgba(247,244,236,.58)); }
-@keyframes rt-ambient{ 0%,100%{ background-position:48% 50%; } 50%{ background-position:56% 46%; } }
-.rt-wrap > *:not(.rt-ambient){ position:relative; z-index:1; }
-@media (prefers-reduced-motion: reduce){ .rt-ambient{ animation:none; } }
+.rt-wrap{ display:flex; flex-direction:column; height:100vh; min-height:0; padding:16px 20px; gap:14px; position:relative; overflow:hidden; }
 .rt-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.rt-top-r{ display:flex; align-items:center; gap:10px; }
-.rt-dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-3); }
-.rt-dot.on{ background:var(--ok, #2E7D32); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok,#2E7D32) 20%, transparent); }
-.rt-conn{ font-family:var(--font-mono); font-size:10px; letter-spacing:.5px; color:var(--ink-2); text-transform:uppercase; }
-.rt-select{ font-family:var(--font-body); font-size:13px; padding:7px 11px; border:1px solid var(--line);
-  border-radius:var(--radius); background:var(--card); color:var(--ink); }
+.rt-top-r{ display:flex; align-items:center; gap:9px; }
+/* Dumaloq pill'lar — ulanish, til, avatar, avto (mockup uslubi). */
+.rt-pill{ display:flex; align-items:center; gap:7px; padding:7px 13px; border-radius:999px;
+  border:1px solid var(--line); background:var(--card); color:var(--ink);
+  font-family:var(--font-body); font-size:13px; box-shadow:0 1px 2px rgba(20,28,40,.04); }
+.rt-pill select{ appearance:none; -webkit-appearance:none; border:0; background:transparent; font:inherit;
+  color:inherit; cursor:pointer; outline:none; padding:0; max-width:170px; }
+.rt-pill-sel{ cursor:pointer; }
+.rt-pill-sel:hover{ border-color:var(--brass); }
+.rt-pill-chev{ font-size:10px; color:var(--ink-3); }
+.rt-pill-ava{ width:22px; height:22px; border-radius:50%; object-fit:cover; object-position:center top;
+  border:1px solid var(--line); }
+.rt-conn-pill{ font-family:var(--font-mono); font-size:9.5px; letter-spacing:.8px; text-transform:uppercase;
+  color:var(--ink-2); }
+.rt-pill-dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-3); }
+.rt-conn-pill.on .rt-pill-dot{ background:var(--ok, #2E7D32);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--ok,#2E7D32) 20%, transparent); }
+.rt-avto{ cursor:pointer; transition:.15s; }
+.rt-avto:hover{ border-color:var(--brass); }
+.rt-avto.on{ background:var(--brass); border-color:var(--brass); color:#fff; }
 
 .rt-empty{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
   color:var(--ink-2); text-align:center; }
 .rt-empty-sub{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); }
 
-/* Ekran 50/50: chap yarim = avatar (blur fon, avatar o'rtada), o'ng yarim = oq. */
-.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:0; }
-/* Avatar chap 50% ning O'RTASIGA joylashadi (margin:auto), to'liq balandlik (4/5). */
-.rt-avatar{ position:relative; overflow:hidden; aspect-ratio:4/5; height:100%; max-height:100%; min-height:0;
-  border-radius:var(--radius-lg); margin:auto; background:var(--panel-2);
-  box-shadow:0 14px 50px rgba(0,0,0,.20); }
+/* Ekran 50/50: chap yarim = avatar TO'LIQ (full-bleed), o'ng yarim = kontent paneli. */
+.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+/* Avatar chap yacheykani TO'LIQ egallaydi (mockup uslubi — yon-tepagacha). */
+.rt-avatar{ position:relative; overflow:hidden; width:100%; height:100%; min-height:0;
+  border-radius:18px; background:var(--panel-2);
+  box-shadow:0 14px 50px rgba(0,0,0,.16); }
 .rt-avatar.busy{ outline:2px solid var(--brass); outline-offset:-2px; }
 /* Tinglash holati — pulslanuvchi yashil halqa (avatar faol tinglayapti) */
 .rt-avatar.listening{ outline:2px solid #34d399; outline-offset:-2px;
@@ -196,14 +203,32 @@
 .rt-state.listen .rt-state-ind{ animation:rt-listen-pulse 1.2s ease-in-out infinite; }
 .rt-state.think .rt-state-ind{ animation:rt-think-blink 1s steps(3,end) infinite; }
 @keyframes rt-think-blink{ 0%{opacity:.2} 50%{opacity:1} 100%{opacity:.2} }
-.rt-media{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center top; display:block; background:transparent; }
+/* Xira orqa qatlam — video contain bo'lganda yon bo'shliqlarni to'ldiradi. */
+.rt-avatar-bg{ position:absolute; inset:-24px; z-index:0; background-size:cover; background-position:center top;
+  filter:blur(26px) brightness(.96) saturate(1.1); }
+/* Video/rasm TO'LIQ ko'rinadi (contain) — yuz kattalashib kesilmaydi. */
+.rt-media{ position:absolute; inset:0; width:100%; height:100%; object-fit:contain; object-position:center; display:block; background:transparent; }
 .rt-base{ z-index:0; }      /* portret — idle yuklanmaguncha ko'rinadi (qora emas) */
 .rt-idle{ z-index:1; }
 .rt-answer{ z-index:2; opacity:1; transition:opacity .28s ease; }
 .rt-answer.rt-fade{ opacity:0; }   /* javob tugagach idle'ga silliq crossfade */
-.rt-name{ position:absolute; left:16px; bottom:14px; color:#fff; font-family:var(--font-display); font-size:22px;
-  text-shadow:0 1px 8px rgba(0,0,0,.6); display:flex; flex-direction:column; }
-.rt-name small{ font-family:var(--font-mono); font-size:9px; letter-spacing:1px; text-transform:uppercase; opacity:.85; }
+/* Online belgisi — chap-tepa shisha pill. */
+.rt-online{ position:absolute; top:14px; left:14px; z-index:3; display:flex; align-items:center; gap:7px;
+  padding:6px 13px; border-radius:999px; font-size:12.5px; font-weight:600; color:#fff;
+  background:rgba(15,22,32,.55); backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,.14); }
+.rt-online-dot{ width:7px; height:7px; border-radius:50%; background:#9aa4b0; }
+.rt-online.on .rt-online-dot{ background:#34d399; box-shadow:0 0 6px rgba(52,211,153,.9); }
+/* Brend kartasi — chap-past shisha lavha (nom + rol + sifat belgilari). */
+.rt-badge{ position:absolute; left:14px; bottom:14px; z-index:3; padding:14px 16px; border-radius:14px;
+  background:rgba(13,20,30,.62); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.12);
+  color:#fff; display:flex; flex-direction:column; gap:3px; max-width:240px; }
+.rt-badge-logo{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(135deg, var(--brass), var(--brass-2, #D7A85B)); color:#fff; margin-bottom:5px; }
+.rt-badge-title{ font-family:var(--font-display); font-size:16px; letter-spacing:.2px; line-height:1.2;
+  text-transform:uppercase; }
+.rt-badge-sub{ font-family:var(--font-mono); font-size:9px; letter-spacing:1.2px; text-transform:uppercase; opacity:.75; }
+.rt-badge-chips{ display:flex; gap:12px; margin-top:9px; padding-top:9px; border-top:1px solid rgba(255,255,255,.14); }
+.rt-badge-chips span{ display:flex; align-items:center; gap:4px; font-size:10.5px; opacity:.9; }
 .rt-progress{ position:absolute; left:0; right:0; bottom:0; height:5px; background:rgba(255,255,255,.15); overflow:hidden; }
 
 .rt-side{ display:flex; flex-direction:column; min-height:0; gap:14px; }
@@ -214,6 +239,52 @@
 .rt-turn-text{ font-family:var(--font-body); font-size:15px; color:var(--ink); line-height:1.45; }
 .rt-turn.user .rt-turn-text{ color:var(--ink-2); }
 .rt-turn.avatar{ border-left:2px solid var(--brass); padding-left:10px; }
+/* Jonli transkript: yangi navbat silliq suzib chiqadi; oqim davomida kursor. */
+.rt-turn{ animation:rt-turn-in .34s cubic-bezier(.2,.7,.3,1) both; }
+@keyframes rt-turn-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
+.rt-turn.avatar.streaming .rt-turn-text::after{ content:""; display:inline-block; width:2px; height:1em;
+  margin-left:2px; vertical-align:-2px; background:var(--brass); animation:rt-caret 1s steps(2,end) infinite; }
+@keyframes rt-caret{ 0%,50%{ opacity:1; } 51%,100%{ opacity:0; } }
+
+/* ── Xush kelibsiz paneli (o'ng yarim — suhbat boshlanmaguncha) ── */
+.rt-welcome{ flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding:26px 8px 8px 8px; }
+.rt-welcome h1{ font-family:var(--font-display); font-size:34px; font-weight:700; color:var(--ink);
+  letter-spacing:-.5px; display:flex; align-items:center; gap:10px; }
+.rt-w-wave{ display:inline-block; animation:rt-wave 2.4s ease-in-out infinite; transform-origin:70% 70%; }
+@keyframes rt-wave{ 0%,60%,100%{ transform:rotate(0); } 66%,78%,90%{ transform:rotate(16deg); } 72%,84%{ transform:rotate(-8deg); } }
+.rt-w-sub{ font-family:var(--font-body); font-size:14.5px; color:var(--ink-2); line-height:1.6; margin-top:6px; }
+.rt-cards{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:20px; }
+.rt-card{ display:flex; align-items:center; gap:13px; text-align:left; padding:16px 17px; cursor:pointer;
+  border:1px solid var(--line); border-radius:14px; background:var(--card);
+  box-shadow:0 1px 3px rgba(20,28,40,.05); transition:.18s; animation:rt-turn-in .4s cubic-bezier(.2,.7,.3,1) both; }
+.rt-card:nth-child(2){ animation-delay:.05s; } .rt-card:nth-child(3){ animation-delay:.1s; }
+.rt-card:nth-child(4){ animation-delay:.15s; } .rt-card:nth-child(5){ animation-delay:.2s; }
+.rt-card:hover{ border-color:var(--brass); transform:translateY(-2px); box-shadow:0 8px 22px -8px rgba(20,28,40,.18); }
+.rt-card-ic{ width:38px; height:38px; flex:none; border-radius:10px; display:flex; align-items:center; justify-content:center; }
+.rt-card-ic.c1{ background:#E8F0FB; color:#2563EB; }
+.rt-card-ic.c2{ background:#FDF0E3; color:#D97706; }
+.rt-card-ic.c3{ background:#E6F6EC; color:#16A34A; }
+.rt-card-ic.c4{ background:#F0EBFB; color:#7C3AED; }
+.rt-card-ic.c5{ background:#FBEAEA; color:#DC2626; }
+.rt-card-tx{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+.rt-card-tx b{ font-size:14px; color:var(--ink); font-weight:600; }
+.rt-card-tx small{ font-size:12px; color:var(--ink-3); }
+/* Maslahat paneli — CTA tepasida yumshoq eslatma. */
+.rt-hintbar{ flex:none; padding:12px 16px; border:1px solid var(--line); border-radius:12px;
+  background:var(--card); color:var(--ink-2); font-size:13px; }
+/* ── Katta CTA tugma (Gapirishni boshlash) — mini-waveform bilan ── */
+.rt-cta{ flex:none; display:flex; align-items:center; gap:14px; padding:13px 18px; border:0; cursor:pointer;
+  border-radius:14px; background:var(--navy); color:#fff; text-align:left; transition:.15s; }
+.rt-cta:hover{ filter:brightness(1.1); }
+.rt-cta:disabled{ opacity:.55; cursor:not-allowed; }
+.rt-cta.rec{ background:var(--err, #C0392B); animation:rt-pulse 1.1s ease-in-out infinite; }
+.rt-cta-ic{ width:38px; height:38px; flex:none; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.14); }
+.rt-cta-tx{ display:flex; flex-direction:column; gap:1px; flex:1; min-width:0; }
+.rt-cta-tx b{ font-family:var(--font-body); font-size:15px; font-weight:600; }
+.rt-cta-tx small{ font-size:11.5px; opacity:.75; }
+.rt-cta-wave{ width:110px; height:30px; flex:none; }
+@media (prefers-reduced-motion: reduce){ .rt-turn,.rt-card,.rt-w-wave{ animation:none; } }
 
 .rt-err{ color:var(--err, #C0392B); font-size:13px; display:flex; align-items:center; gap:6px; }
 .rt-status{ color:var(--ink-2); font-family:var(--font-mono); font-size:11px; letter-spacing:.4px; }
@@ -225,12 +296,6 @@
 .rt-metrics-total b{ color:var(--brass); }
 .rt-metrics-total{ margin-left:auto; text-align:right; align-items:flex-end; }
 
-.rt-mic{ display:flex; align-items:center; justify-content:center; gap:10px; padding:16px; border:0; cursor:pointer;
-  border-radius:var(--radius); background:var(--navy); color:#fff; font-family:var(--font-body); font-size:15px;
-  transition:.15s; }
-.rt-mic:hover{ filter:brightness(1.08); }
-.rt-mic:disabled{ opacity:.5; cursor:not-allowed; }
-.rt-mic.rec{ background:var(--err, #C0392B); animation:rt-pulse 1.1s ease-in-out infinite; }
 @keyframes rt-pulse{ 0%,100%{ box-shadow:0 0 0 0 color-mix(in srgb, #C0392B 50%, transparent); } 50%{ box-shadow:0 0 0 10px transparent; } }
 .rt-tip{ text-align:center; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.5px; color:var(--ink-3); text-transform:uppercase; }
 
