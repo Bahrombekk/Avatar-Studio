@@ -147,15 +147,16 @@
 
 /* ── Real-time ovozli suhbat sahifasi ── */
 .rt-wrap{ display:flex; flex-direction:column; height:100vh; min-height:0; padding:22px 26px; gap:18px; position:relative; overflow:hidden; }
-/* Ambient fon: avatar rasmidan olingan xira, sekin jonlanuvchi to'ldiruvchi.
-   Kontent (rt-top, rt-stage) uning ustida turadi (z-index:1). */
-.rt-ambient{ position:absolute; inset:0; z-index:0; background-size:cover; background-position:center;
-  filter:blur(72px) saturate(1.35) brightness(.96); transform:scale(1.22); pointer-events:none;
-  animation:rt-ambient 34s ease-in-out infinite; }
+/* Ambient fon: avatar rasmidan olingan xira, sekin jonlanuvchi to'ldiruvchi (butun
+   ekran). Kontent (rt-top, rt-stage) uning ustida (z-index:1). */
+/* Ambient blur faqat CHAP 50% da — o'ng (oq) yarmga OSHIB KETMAYDI (overflow:hidden
+   qat'iy kesadi; zoom transform emas, background-size bilan → box'dan chiqmaydi). */
+.rt-ambient{ position:absolute; top:0; left:0; bottom:0; right:50%; z-index:0; overflow:hidden;
+  background-size:135%; background-position:center; filter:blur(72px) saturate(1.35) brightness(.97);
+  clip-path:inset(0); pointer-events:none; animation:rt-ambient 34s ease-in-out infinite; }
 .rt-ambient::after{ content:""; position:absolute; inset:0;
-  background:linear-gradient(180deg, rgba(247,244,236,.58), rgba(247,244,236,.74)); }
-@keyframes rt-ambient{ 0%,100%{ transform:scale(1.18) translate(0,0); }
-  50%{ transform:scale(1.3) translate(-1.6%,-1.2%); } }
+  background:linear-gradient(180deg, rgba(247,244,236,.42), rgba(247,244,236,.58)); }
+@keyframes rt-ambient{ 0%,100%{ background-position:48% 50%; } 50%{ background-position:56% 46%; } }
 .rt-wrap > *:not(.rt-ambient){ position:relative; z-index:1; }
 @media (prefers-reduced-motion: reduce){ .rt-ambient{ animation:none; } }
 .rt-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -170,13 +171,12 @@
   color:var(--ink-2); text-align:center; }
 .rt-empty-sub{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); }
 
-.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:minmax(420px, 1.5fr) minmax(300px, 1fr); gap:22px; }
-/* Avatar TO'LIQ BALANDLIKDA, portret nisbati (4/5) saqlanadi — keng ekranda ham
-   yuz/kadr buzilmaydi (haddan zoom yo'q). Ustunda markazlashadi. object-position
-   center top yuzni yuqorida ushlaydi. */
-.rt-avatar{ position:relative; border-radius:var(--radius-lg); overflow:hidden; background:var(--panel-2);
-  box-shadow:var(--shadow); aspect-ratio:4/5; height:100%; max-height:100%; max-width:100%;
-  margin:0 auto; min-height:0; }
+/* Ekran 50/50: chap yarim = avatar (blur fon, avatar o'rtada), o'ng yarim = oq. */
+.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:0; }
+/* Avatar chap 50% ning O'RTASIGA joylashadi (margin:auto), to'liq balandlik (4/5). */
+.rt-avatar{ position:relative; overflow:hidden; aspect-ratio:4/5; height:100%; max-height:100%; min-height:0;
+  border-radius:var(--radius-lg); margin:auto; background:var(--panel-2);
+  box-shadow:0 14px 50px rgba(0,0,0,.20); }
 .rt-avatar.busy{ outline:2px solid var(--brass); outline-offset:-2px; }
 /* Tinglash holati — pulslanuvchi yashil halqa (avatar faol tinglayapti) */
 .rt-avatar.listening{ outline:2px solid #34d399; outline-offset:-2px;

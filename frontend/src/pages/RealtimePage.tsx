@@ -305,8 +305,7 @@ export function RealtimePage() {
 
   return (
     <div className="rt-wrap">
-      {/* Ambient fon — avatar rasmidan olingan xira, sekin jonlanuvchi fon.
-          Keng ekranда bo'sh joyni chiroyli to'ldiradi (avatarga mos rang/kayfiyat). */}
+      {/* Ambient fon — avatar rasmidan olingan xira, sekin jonlanuvchi (butun ekran). */}
       {avatar && (
         <div className="rt-ambient"
           style={{ backgroundImage: `url(${API.photoUrl(avatar.id)})` }} aria-hidden />
