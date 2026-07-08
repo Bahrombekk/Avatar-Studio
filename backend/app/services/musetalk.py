@@ -252,23 +252,23 @@ def _venc_args(fps: int, hd: bool = False, low_latency: bool = False) -> list:
 
     low_latency=True (real-time OQIM) → enkoder buferini MINIMALLASHTIRADI:
     B-kadrlar yo'q (-bf 0, qayta tartiblash buferi yo'q), lookahead yo'q, keyframe
-    tez-tez (-g ~0.25s) → frag_keyframe birinchi fragmentni DARROV chiqaradi.
-    SABAB: -tune hq nvenc'da lookahead+B-kadr buferini yoqib, birinchi video baytni
-    ~1.9s kechiktirardi (o'lchangan). Sifat farqi realtime'da sezilmaydi."""
+    tez-tez (-g ~0.25s) → birinchi fragment DARROV chiqadi.
+
+    Realtime DOIM libx264 (NVENC EMAS): oqim uzilganda ffmpeg SIGKILL bilan
+    o'ldiriladi — NVENC sessiyasi qattiq kill'dan keyin drayverda chala qolib
+    KEYINGI enkoderlarni futex'da abadiy osiltirishi kuzatildi (jonli xato:
+    ffmpeg'lar futex_wait'da, producer pipe_write'da qotib butun video o'lardi).
+    792x960@25fps x264 ultrafast'ga arzimas yuk; offline HD render NVENC'da qoladi."""
     enc = _encoder_name()
     g_ll = max(2, int(fps) // 4)   # ~0.25s keyframe oralig'i (tez birinchi fragment)
+    if low_latency:
+        return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+                "-crf", "20", "-bf", "0", "-pix_fmt", "yuv420p", "-g", str(g_ll)]
     if enc == "h264_nvenc":
-        if low_latency:
-            return ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll",
-                    "-rc", "vbr", "-cq", "22", "-b:v", "0", "-bf", "0", "-delay", "0",
-                    "-pix_fmt", "yuv420p", "-g", str(g_ll)]
         cq, pre = ("17", "p7") if hd else ("20", "p5")
         return ["-c:v", "h264_nvenc", "-preset", pre, "-tune", "hq",
                 "-rc", "vbr", "-cq", cq, "-b:v", "0",
                 "-pix_fmt", "yuv420p", "-g", str(fps)]
-    if low_latency:
-        return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-                "-crf", "20", "-bf", "0", "-pix_fmt", "yuv420p", "-g", str(g_ll)]
     crf, pre = ("16", "slow") if hd else ("18", "veryfast")
     return ["-c:v", "libx264", "-preset", pre, "-crf", crf,
             "-pix_fmt", "yuv420p", "-g", str(fps)]
@@ -1215,10 +1215,20 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                         # ── PREROLL: TTS tayyor bo'lguncha idle kadrlar (real vaqt
                         # sur'atida — video timeline'i haqiqiy vaqt bilan teng yuradi,
                         # shunda nutq o'z o'rnida boshlanadi, keyinga surilmaydi). ──
+                        # MUHIM: audio DOIM videodan _A_LEAD kadr OLDINDA yuriladi —
+                        # kadr-bakadr teng qadam (lockstep) mp4 muxer + AAC (1024
+                        # sample blok) navbatida DEADLOCK qilardi (jonli xato: 12
+                        # kadrdan keyin butun ffmpeg futex'da muzlab qolardi; eski
+                        # yo'l barqaror edi chunki jumla audiosi butunlay oldindan
+                        # kelardi). Preroll oxirida video shu avansга tenglashtiriladi
+                        # (qo'shimcha idle kadrlar) — A/V sinxron buzilmaydi.
                         _preroll_done = True
                         spf = 1.0 / float(fps)
                         sil = b"\x00\x00" * (16000 // int(fps))   # 1 kadrlik jimlik
                         _pre_max = int(fps) * 45   # xavfsizlik: ko'pi bilan 45s preroll
+                        _A_LEAD = 8                # audio avansi (kadrlarda, ~0.3s)
+                        for _ in range(_A_LEAD):
+                            audio_bq.put(sil)
                         wav = None
                         while pos < _pre_max:
                             try:
@@ -1229,7 +1239,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                             if cancel is not None and cancel.is_set():
                                 break
                             _t0 = time.time()
-                            audio_bq.put(sil)
+                            audio_bq.put(sil)   # avans saqlanadi (video -_A_LEAD orqada)
                             proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
                             if _sp and pos == 0:
                                 log.info("[TTFF] preroll 1-kadr ffmpeg'ga yozildi: %.2fs",
@@ -1241,6 +1251,10 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                                 _dt = time.time() - _t0
                                 if _dt < spf:
                                     time.sleep(spf - _dt)
+                        # Avansni yopamiz: video audio'ga yetib oladi (sinxron teng).
+                        for _ in range(_A_LEAD):
+                            proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
+                            pos += 1
                     else:
                         wav = chunk_queue.get()
                     if wav is None:
