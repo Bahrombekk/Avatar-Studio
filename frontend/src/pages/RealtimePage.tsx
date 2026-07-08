@@ -305,6 +305,12 @@ export function RealtimePage() {
 
   return (
     <div className="rt-wrap">
+      {/* Ambient fon — avatar rasmidan olingan xira, sekin jonlanuvchi fon.
+          Keng ekranда bo'sh joyni chiroyli to'ldiradi (avatarga mos rang/kayfiyat). */}
+      {avatar && (
+        <div className="rt-ambient"
+          style={{ backgroundImage: `url(${API.photoUrl(avatar.id)})` }} aria-hidden />
+      )}
       <div className="rt-top">
         <div className="rt-brand"><I.layers size={18} /> Avatar Studio · <span>{tr("app.live")}</span></div>
         <div className="rt-top-r">
