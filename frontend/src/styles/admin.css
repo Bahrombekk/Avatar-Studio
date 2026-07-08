@@ -159,9 +159,11 @@
   color:var(--ink-2); text-align:center; }
 .rt-empty-sub{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); }
 
-.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:minmax(320px, 1fr) minmax(320px, 1.1fr); gap:22px; }
+.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:minmax(420px, 1.7fr) minmax(300px, 1fr); gap:22px; }
+/* Avatar ekranning KATTA qismini egallaydi — ustunni to'liq to'ldiradi (bo'y-cheklovsiz).
+   object-position:center top yuzni saqlaydi, pastki qism kesiladi. */
 .rt-avatar{ position:relative; border-radius:var(--radius-lg); overflow:hidden; background:var(--panel-2);
-  box-shadow:var(--shadow); aspect-ratio:3/4; max-height:100%; }
+  box-shadow:var(--shadow); height:100%; min-height:0; }
 .rt-avatar.busy{ outline:2px solid var(--brass); outline-offset:-2px; }
 /* Tinglash holati — pulslanuvchi yashil halqa (avatar faol tinglayapti) */
 .rt-avatar.listening{ outline:2px solid #34d399; outline-offset:-2px;
