@@ -1078,6 +1078,12 @@ _CTX_FRAMES = max(0, int(os.environ.get("RT_CTX_FRAMES", "15")))
 # bilan gapira boshlaydi → his qilinadigan kechikish ~2s dan ~0.5s ga tushadi.
 # O'chirish: RT_PREROLL=0.
 _PREROLL = os.environ.get("RT_PREROLL", "1").lower() not in ("0", "false", "no")
+# Preroll BURST: dastlabki shuncha kadr KUTMASDAN (bir zumda) yoziladi — brauzer
+# o'ynashni boshlash uchun bufer talab qiladi; kadrlar aynan real-vaqt tezligida
+# kelsa bufer hech yig'ilmaydi (kelish = sarflanish) va o'ynash ~1s kechikadi.
+# Burst bufer yostig'ini darrov beradi → onPlaying ancha oldin. Nutq vaqti
+# o'zgarMAYDI: yostiq baribir qayerdandir kelishi kerak edi (15 ≈ 0.6s @25fps).
+_PREROLL_BURST = max(0, int(os.environ.get("RT_PREROLL_BURST", "15")))
 
 
 def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = None,
@@ -1222,9 +1228,12 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                                 log.info("[TTFF] preroll 1-kadr ffmpeg'ga yozildi: %.2fs",
                                          time.time() - _sp0)
                             pos += 1
-                            _dt = time.time() - _t0
-                            if _dt < spf:
-                                time.sleep(spf - _dt)
+                            # Dastlabki BURST kadrlar kutmasdan ketadi (brauzer bufer
+                            # yostig'i); qolganlari real-vaqt sur'atida.
+                            if pos > _PREROLL_BURST:
+                                _dt = time.time() - _t0
+                                if _dt < spf:
+                                    time.sleep(spf - _dt)
                     else:
                         wav = chunk_queue.get()
                     if wav is None:
