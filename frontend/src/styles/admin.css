@@ -159,11 +159,13 @@
   color:var(--ink-2); text-align:center; }
 .rt-empty-sub{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); }
 
-.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:minmax(420px, 1.7fr) minmax(300px, 1fr); gap:22px; }
-/* Avatar ekranning KATTA qismini egallaydi — ustunni to'liq to'ldiradi (bo'y-cheklovsiz).
-   object-position:center top yuzni saqlaydi, pastki qism kesiladi. */
+.rt-stage{ flex:1; min-height:0; display:grid; grid-template-columns:minmax(420px, 1.5fr) minmax(300px, 1fr); gap:22px; }
+/* Avatar TO'LIQ BALANDLIKDA, portret nisbati (4/5) saqlanadi — keng ekranda ham
+   yuz/kadr buzilmaydi (haddan zoom yo'q). Ustunda markazlashadi. object-position
+   center top yuzni yuqorida ushlaydi. */
 .rt-avatar{ position:relative; border-radius:var(--radius-lg); overflow:hidden; background:var(--panel-2);
-  box-shadow:var(--shadow); height:100%; min-height:0; }
+  box-shadow:var(--shadow); aspect-ratio:4/5; height:100%; max-height:100%; max-width:100%;
+  margin:0 auto; min-height:0; }
 .rt-avatar.busy{ outline:2px solid var(--brass); outline-offset:-2px; }
 /* Tinglash holati — pulslanuvchi yashil halqa (avatar faol tinglayapti) */
 .rt-avatar.listening{ outline:2px solid #34d399; outline-offset:-2px;
