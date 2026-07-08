@@ -1023,8 +1023,11 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
     tp.start()
     tc.start()
     try:
+        # os.read — BufferedReader.read(n) emas: u aynan n bayt TO'LGUNCHA bloklaydi
+        # (birinchi fragment ~0.5-0.9s kechikardi); os.read bori bilan darrov qaytadi.
+        _out_fd = proc.stdout.fileno()
         while True:
-            chunk = proc.stdout.read(65536)
+            chunk = os.read(_out_fd, 65536)
             if not chunk:
                 break
             yield chunk
@@ -1068,6 +1071,13 @@ def _write_wav16(path: str, pcm: bytes):
 # Dum + jumla birga kodlanadi, dumga to'g'ri kelgan chunk'lar tashlanadi (UNet'ga
 # bormaydi — faqat Whisper encode ozgina qimmatlashadi). 0 = o'chiq. 15 ≈ 0.6s.
 _CTX_FRAMES = max(0, int(os.environ.get("RT_CTX_FRAMES", "15")))
+
+# Preroll: 1-jumla TTS tayyor bo'lguncha javob videosida IDLE kadrlar real vaqt
+# sur'atida oqadi. Video deyarli darrov boshlanadi (NVENC ham birinchi kadrda
+# isiydi), avatar "tinglab turgan" ko'rinishda davom etadi, nutq tayyor bo'lishi
+# bilan gapira boshlaydi → his qilinadigan kechikish ~2s dan ~0.5s ga tushadi.
+# O'chirish: RT_PREROLL=0.
+_PREROLL = os.environ.get("RT_PREROLL", "1").lower() not in ("0", "false", "no")
 
 
 def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = None,
@@ -1128,7 +1138,10 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
         # max_interleave_delta 0 — ffmpeg interleave uchun kutmasdan paketlarni darrov
         # muxer'ga beradi (frag'lar tez chiqadi, birinchi kadr bloklanmaydi).
         "-max_interleave_delta", "0",
-        "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1",
+        # frag_every_frame — HAR KADR alohida fragment: birinchi kadr kodlanishi
+        # bilanoq brauzerga chiqadi (frag_keyframe ~7 kadr yig'ilishini kutardi,
+        # TTFF -0.3..0.6s). moof sarlavha xarajati kadr boshiga ~1KB — arzimas.
+        "-movflags", "empty_moov+default_base_moof+frag_every_frame", "-f", "mp4", "pipe:1",
     ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
        pass_fds=(audio_r,))
     _os.close(audio_r)   # ota jarayon o'qish uchini yopadi (ffmpeg meros oldi)
@@ -1182,10 +1195,38 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
         # edi, bu yo'lda yo'q edi). Holat jumlalar ORASIDA ham uzluksiz.
         _ls = max(0.0, min(0.8, float(os.environ.get("RT_LIP_SMOOTH", "0.35"))))
         _ema = None
+        _preroll_done = not _PREROLL
         try:
             with _gpu_slot("streamq"), torch.inference_mode():
                 while True:
-                    wav = chunk_queue.get()
+                    if not _preroll_done:
+                        # ── PREROLL: TTS tayyor bo'lguncha idle kadrlar (real vaqt
+                        # sur'atida — video timeline'i haqiqiy vaqt bilan teng yuradi,
+                        # shunda nutq o'z o'rnida boshlanadi, keyinga surilmaydi). ──
+                        _preroll_done = True
+                        spf = 1.0 / float(fps)
+                        sil = b"\x00\x00" * (16000 // int(fps))   # 1 kadrlik jimlik
+                        wav = None
+                        while True:
+                            try:
+                                wav = chunk_queue.get_nowait()
+                                break
+                            except _q.Empty:
+                                pass
+                            if cancel is not None and cancel.is_set():
+                                break
+                            _t0 = time.time()
+                            audio_bq.put(sil)
+                            proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
+                            if _sp and pos == 0:
+                                log.info("[TTFF] preroll 1-kadr ffmpeg'ga yozildi: %.2fs",
+                                         time.time() - _sp0)
+                            pos += 1
+                            _dt = time.time() - _t0
+                            if _dt < spf:
+                                time.sleep(spf - _dt)
+                    else:
+                        wav = chunk_queue.get()
                     if wav is None:
                         break
                     if cancel is not None and cancel.is_set():   # barge-in: to'xtatamiz
@@ -1281,8 +1322,11 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
     threading.Thread(target=audio_writer, daemon=True).start()
     threading.Thread(target=producer, daemon=True).start()
     try:
+        # os.read — bori bilan darrov qaytadi (64KB to'lishini kutmaydi) → birinchi
+        # fragment brauzerga bir zumda yetadi (TTFF -0.5..0.9s).
+        _out_fd = proc.stdout.fileno()
         while True:
-            chunk = proc.stdout.read(65536)
+            chunk = _os.read(_out_fd, 65536)
             if not chunk:
                 break
             yield chunk

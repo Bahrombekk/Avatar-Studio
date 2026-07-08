@@ -53,6 +53,31 @@ _EMOTION = os.environ.get("RT_EMOTION", "1").lower() not in ("0", "false", "no")
 # mumkin (kasr son); bo'shliq talab qilingani uchun "3.5" hech qachon bo'linmaydi.
 _SENT_END = re.compile(r"[.!?…]+[\"'»)\]]*\s+")
 
+# ── 1-bo'lak klauza bo'lishi (TTFF) ── birinchi jumla uzun bo'lsa VERGUL/ikki
+# nuqta/tire kabi tabiiy pauzada bo'linadi: qisqa matn Yandex'da sezilarli tez
+# sintez bo'ladi → birinchi video fragment oldinroq chiqadi. Qolgan qismi
+# keyingi jumlalar bilan birga ketadi (mayda TTS so'rovlar bo'lmaydi).
+_CLAUSE_MIN = 22    # bo'lak kamida shuncha belgi (juda kalta "Salom," bo'lmasin)
+_CLAUSE_MAX = 72    # jumla shundan uzun bo'lsa bo'lishga harakat qilamiz
+_CLAUSE_SEP = re.compile(r"[,;:]\s|\s[—–]\s")
+
+
+def _split_first_clause(text: str):
+    """Birinchi TTS bo'lagini tabiiy pauzada bo'ladi → (bosh, qolgan).
+    Mos chegara topilmasa ('' qolgan bilan) butun matn qaytadi."""
+    if len(text) <= _CLAUSE_MAX:
+        return text, ""
+    best = -1
+    for m in _CLAUSE_SEP.finditer(text):
+        if m.end() < _CLAUSE_MIN:
+            continue
+        if m.end() > _CLAUSE_MAX:
+            break
+        best = m.end()
+    if best < 0:
+        return text, ""
+    return text[:best].strip(), text[best:].strip()
+
 
 def split_sentences(buf: str):
     """Buferdan TUGALLANGAN jumlalarni ajratadi → (jumlalar, qolgan dum).
@@ -253,14 +278,21 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
                 if stream_sent and len(hold) < _MIN_TAIL_CHARS:
                     continue
                 _start_worker()
-                sent_q.put(hold)
-                hold = ""
                 if not stream_sent:
+                    # TTFF: 1-jumla uzun bo'lsa vergul/pauzada bo'lamiz — qisqa
+                    # bo'lak TTS'da tez sintez bo'ladi, birinchi video oldin chiqadi.
+                    # Qolgani hold'da qoladi (keyingi jumlalar bilan qo'shilib ketadi).
+                    head, rest = _split_first_clause(hold)
+                    sent_q.put(head)
+                    hold = rest
                     _register_pending()
                     yield {"type": "stream", "url": f"/api/realtime/stream/{sid}",
                            "timing": {"gpt": round(time.time() - t, 2), "tts": 0.0},
                            "start_frame": start_frame, "sentence_stream": True}
                     stream_sent = True
+                else:
+                    sent_q.put(hold)
+                    hold = ""
     except Exception as e:  # noqa: BLE001
         if worker_started:
             sent_q.put(None)   # boshlangan nutq yakunlansin (video osilib qolmasin)
