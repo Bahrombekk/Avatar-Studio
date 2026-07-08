@@ -435,7 +435,7 @@ export function RealtimePage() {
               <img className="rt-pill-ava" src={API.photoUrl(avatar.id)} alt="" />
               <select value={avatar.id} onChange={(e) => setAvatarId(e.target.value)}>
                 {ready.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name} · {a.voice}</option>
+                  <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
               <span className="rt-pill-chev" aria-hidden>▾</span>
