@@ -1032,6 +1032,12 @@ def musetalk_infer_stream(wav_path: str, fps: int = 25, avatar_id: str = None,
                 break
             yield chunk
     finally:
+        # Mijoz ketgan bo'lsa ffmpeg'ni darrov o'ldiramiz (producer BrokenPipe olib
+        # chiqadi, GPU bo'shaydi). Normal tugashda (ffmpeg o'zi chiqqan) zararsiz.
+        try:
+            proc.kill()
+        except Exception:
+            pass
         try:
             proc.stdout.close()
         except Exception:
@@ -1212,8 +1218,9 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                         _preroll_done = True
                         spf = 1.0 / float(fps)
                         sil = b"\x00\x00" * (16000 // int(fps))   # 1 kadrlik jimlik
+                        _pre_max = int(fps) * 45   # xavfsizlik: ko'pi bilan 45s preroll
                         wav = None
-                        while True:
+                        while pos < _pre_max:
                             try:
                                 wav = chunk_queue.get_nowait()
                                 break
@@ -1340,6 +1347,15 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                 break
             yield chunk
     finally:
+        # Mijoz KETGAN bo'lsa (GeneratorExit) ffmpeg'ni DARROV o'ldiramiz — aks holda
+        # ffmpeg stdout'i to'lib stdin o'qishni to'xtatadi → producer stdin.write'da
+        # abadiy qotib GPU slotni ushlab qoladi → KEYINGI so'rovlarga video chiqmaydi
+        # (jonli xato: 5 ta ffmpeg to'planib butun oqim o'lgan edi). Producer
+        # BrokenPipe oladi → chiqadi → slot bo'shaydi. Normal tugashda zararsiz.
+        try:
+            proc.kill()
+        except Exception:
+            pass
         try:
             proc.stdout.close()
         except Exception:

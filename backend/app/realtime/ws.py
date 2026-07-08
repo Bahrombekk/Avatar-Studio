@@ -202,5 +202,9 @@ async def realtime_ws(ws: WebSocket):
         except Exception:
             pass
     finally:
+        # Ulanish uzildi — joriy javob generatsiyasini ham to'xtatamiz (aks holda
+        # producer GPU'da davom etib slotni ushlab turadi; sahifa yangilanganda
+        # eski oqimlar to'planib yangi so'rovlarni bloklashi mumkin).
+        stop_active_reply()
         # Sessiya tarixini bo'shatamiz (xotira oqmasin — har ulanish noyob kalit).
         clear_history(session_id)
