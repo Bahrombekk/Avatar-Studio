@@ -12,8 +12,12 @@ const proxy = Object.fromEntries(
   ),
 );
 
+// base: dev = "/" (localhost:8100/ ildizda). Spark deploy = "/avatar/" —
+// nbt.railway.uz/avatar/ ostida chiqishi uchun `VITE_BASE=/avatar/ npm run build`.
+// (Asset/index shu prefiks bilan; /api, /voices, WS absolyut qoladi — proksi ularni
+//  backendga yo'naltirishi kerak.)
 export default defineConfig({
-  base: "/",
+  base: process.env.VITE_BASE || "/",
   plugins: [react()],
   resolve: {
     alias: {

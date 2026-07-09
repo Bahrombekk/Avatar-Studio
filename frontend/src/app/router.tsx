@@ -35,5 +35,7 @@ export const router = createBrowserRouter(
       ],
     },
   ],
-  { basename: "/" },
+  // basename = vite base (dev "/", Spark "/avatar/") — /avatar/ ostida marshrutlar
+  // to'g'ri ishlashi uchun. BASE_URL oxirgi "/" bilan keladi; router uni normallaydi.
+  { basename: import.meta.env.BASE_URL },
 );
