@@ -35,7 +35,16 @@ export const router = createBrowserRouter(
       ],
     },
   ],
-  // basename = vite base (dev "/", Spark "/avatar/") — /avatar/ ostida marshrutlar
-  // to'g'ri ishlashi uchun. BASE_URL oxirgi "/" bilan keladi; router uni normallaydi.
-  { basename: import.meta.env.BASE_URL },
+  // basename DINAMIK: joriy URL vite base ("/avatar") bilan boshlansa — o'sha,
+  // aks holda "/". Shunda BITTA /avatar/ build uch xil kirishda ishlaydi:
+  //   • proksi/subpath: nbt.railway.uz/avatar/  → pathname "/avatar/..." → basename "/avatar"
+  //   • Spark to'g'ridan ROOT: 192.168.136.153:8100/ → pathname "/" → basename "/"
+  //   • lokal dev (base "/"):  rawBase "" → basename "/"
+  { basename: _routerBase() },
 );
+
+function _routerBase(): string {
+  const raw = import.meta.env.BASE_URL.replace(/\/$/, "");   // "" yoki "/avatar"
+  if (raw && window.location.pathname.startsWith(raw)) return raw;
+  return "/";
+}
