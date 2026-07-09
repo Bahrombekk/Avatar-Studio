@@ -13,6 +13,11 @@ import type { Avatar } from "@/types/avatar";
 
 type Turn = { role: "user" | "avatar"; text: string; streaming?: boolean };
 
+// HTTP resurslar (backend qaytaradigan video-oqim /api/... URL) uchun base-prefiks
+// (dev "", Spark "/avatar") — Spark'da /avatar/api/ nginx location orqali o'tsin.
+// (WS esa alohida root /api/ws/avatar/realtime — realtime.ts'da.)
+const HTTP_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export function RealtimePage() {
   const { avatars } = useAvatars();
   const tr = useT();
@@ -135,7 +140,7 @@ export function RealtimePage() {
           setStatus("");
           setBusy(false);
           setAnswerFading(false);
-          setAnswerUrl(String(data.url));
+          setAnswerUrl(HTTP_BASE + String(data.url));
         } else if (type === "error") {
           setError(String(data.message || "Xatolik"));
           setStatus("");

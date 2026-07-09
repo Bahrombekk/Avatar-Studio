@@ -1,4 +1,4 @@
-"""Real-time WebSocket — /api/realtime/ws (streaming STT + idle-loop + video stream).
+"""Real-time WebSocket — /api/ws/avatar/realtime (streaming STT + idle-loop + video stream).
 
 Protokol (klient → server):
   matn "start"        → STT sessiyasi ochiladi (gapirish boshlandi)
@@ -81,7 +81,7 @@ def realtime_stream(token: str):
                              headers={"Cache-Control": "no-store"})
 
 
-@router.websocket("/api/realtime/ws")
+@router.websocket("/api/ws/avatar/realtime")
 async def realtime_ws(ws: WebSocket):
     await ws.accept()
     avatar_id = ws.query_params.get("avatar") or None

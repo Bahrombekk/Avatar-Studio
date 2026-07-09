@@ -2,7 +2,7 @@
 
 Public (loginsiz):
   /                     -> SPA: foydalanuvchi real-time ovozli suhbat
-  /api/realtime/ws      -> real-time WebSocket (streaming STT → video)
+  /api/ws/avatar/realtime      -> real-time WebSocket (streaming STT → video)
   GET /api/avatars      -> avatar ro'yxati (o'qish)
   /voices, /idle.jpg, /health, /videos/...
 
@@ -145,7 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(canned.router)      # /api/canned (tayyor javoblar — pre-rendered Q&A)
     app.include_router(knowledge.router)   # /api/avatars/{id}/knowledge (RAG bilim bazasi)
     app.include_router(conversations.router)  # /api/conversations (suhbat tarixi)
-    app.include_router(realtime_router)    # /api/realtime/ws (alohida modul)
+    app.include_router(realtime_router)    # /api/ws/avatar/realtime (alohida modul)
 
     # SPA — endi ROOT '/' da: '/' = public real-time (user), '/admin/*' = panel (login).
     # API routerlari yuqorida ro'yxatdan o'tgani uchun mount ulardan keyin tekshiriladi.
