@@ -1090,6 +1090,11 @@ _PREROLL = os.environ.get("RT_PREROLL", "1").lower() not in ("0", "false", "no")
 # Burst bufer yostig'ini darrov beradi → onPlaying ancha oldin. Nutq vaqti
 # o'zgarMAYDI: yostiq baribir qayerdandir kelishi kerak edi (15 ≈ 0.6s @25fps).
 _PREROLL_BURST = max(0, int(os.environ.get("RT_PREROLL_BURST", "15")))
+# Jumlalar ORASIDAGI kutish chegarasi (s): GPT/TTS shuncha vaqt jim qolsa oqim
+# muloyim yakunlanadi (aks holda producer abadiy kutib GPU slotni band qilardi —
+# "chala javob berib qotib qoladi" xatosining ildizi). Kutish paytida video
+# to'xtamaydi: idle kadrlar oqib turadi ("o'ylab turgan" ko'rinish).
+_GAP_MAX = max(5, int(os.environ.get("RT_GAP_MAX", "60")))
 
 
 def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = None,
@@ -1256,7 +1261,47 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                             proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
                             pos += 1
                     else:
-                        wav = chunk_queue.get()
+                        # ── Keyingi jumlani KUTISH — bloklanmaydi. GPT/TTS kechiksa
+                        # 0.35s dan keyin idle kadrlar oqadi (video jonli, brauzer
+                        # stall bo'lmaydi); _GAP_MAX dan oshsa oqim muloyim tugaydi
+                        # (aks holda producer abadiy kutib GPU slotni band qilardi).
+                        # A/V yozish preroll bilan bir xil AVANS tartibida (lockstep
+                        # deadlock'ka qarshi). ──
+                        wav = None
+                        _w0 = time.time()
+                        _spf = 1.0 / float(fps)
+                        _sil = b"\x00\x00" * (16000 // int(fps))
+                        _lead_open = 0     # gap-fill boshlagan bo'lsak yopish kerak
+                        while True:
+                            try:
+                                wav = chunk_queue.get(timeout=0.3)
+                                break
+                            except _q.Empty:
+                                pass
+                            if cancel is not None and cancel.is_set():
+                                break
+                            if time.time() - _w0 > _GAP_MAX:
+                                log.warning("[streamq] jumla %ds ichida kelmadi — oqim yakunlanadi",
+                                            _GAP_MAX)
+                                break
+                            if time.time() - _w0 <= 0.35:
+                                continue   # qisqa pauza — to'ldirish shart emas
+                            if _lead_open == 0:
+                                for _ in range(_A_LEAD):   # audio avansini ochamiz
+                                    audio_bq.put(_sil)
+                                _lead_open = _A_LEAD
+                            _t0 = time.time()
+                            audio_bq.put(_sil)
+                            proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
+                            pos += 1
+                            _dt = time.time() - _t0
+                            if _dt < _spf:
+                                time.sleep(_spf - _dt)
+                        if _lead_open:
+                            # Avansni yopamiz (video audio'ga tenglashadi — sinxron).
+                            for _ in range(_lead_open):
+                                proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
+                                pos += 1
                     if wav is None:
                         break
                     if cancel is not None and cancel.is_set():   # barge-in: to'xtatamiz

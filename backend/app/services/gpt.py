@@ -11,7 +11,10 @@ from openai import OpenAI
 from app.core.config import openai_api_key
 
 log = logging.getLogger(__name__)
-client = OpenAI(api_key=openai_api_key())
+# timeout: OpenAI default 600s — tarmoq osilsa realtime quvur 10 daqiqa qotib,
+# GPU slotni band qilardi ("chala javob berib qotib qoladi"). 30s + 2 retry:
+# osilgan so'rov xato bilan tez yakunlanadi, quvur o'zini yopadi.
+client = OpenAI(api_key=openai_api_key(), timeout=30.0, max_retries=2)
 
 # Embedding modeli — non-English (O'zbek) uchun `text-embedding-3-large` ancha aniq
 # (3-small ingliz-yo'naltirilgan). env EMBED_MODEL bilan almashtiriladi. DIQQAT: modelni
