@@ -139,6 +139,15 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     # 'til=ingliz' → inglizcha ovoz + o'zbekcha normalizatsiya o'zi o'chadi.
     from app.services.tts import voice_for
     use_voice = voice or voice_for(avatar, _lang)
+    # Ovoz sozlamalari (editordan): uslub/mood + tezlik. Mood bo'lsa — QAT'IY o'sha
+    # ohang (auto-emotsiya o'chadi); bo'sh bo'lsa — dinamik (jumla mazmuniga qarab).
+    _mood = ((avatar or {}).get("voiceMood") or "").strip()
+    try:
+        _spd = float((avatar or {}).get("voiceSpeed") or 1.0)
+    except (TypeError, ValueError):
+        _spd = 1.0
+    _spd = max(0.5, min(2.0, _spd))
+    _auto_emo = _EMOTION and not _mood
     # Realtime fps: avatar.json fps (default 25). RT_FPS env bilan PASTGA cheklash
     # mumkin (zaif GPU / Spark uchun) — kadr soni kamayib GPU (asosan VAE) yengillashadi,
     # video o'ynash tezligiga ulguradi. Studio (offline) to'liq fps'da qoladi.
@@ -226,7 +235,8 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
                 wav = str(TEMP_DIR / f"rt_{sid}_{i}.wav")
                 t0 = time.time()
                 try:
-                    tts(sent, wav, voice=use_voice, auto_emotion=_EMOTION)
+                    tts(sent, wav, voice=use_voice, speed=_spd,
+                        role=(_mood or None), auto_emotion=_auto_emo)
                 except Exception as e:  # noqa: BLE001
                     log.error("[rt-tts] jumla %d xato (%s): %s", i, use_voice, e,
                               extra={"stage": "tts", "voice": use_voice})
@@ -335,7 +345,8 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     wav = str(TEMP_DIR / f"rt_{sid}.wav")
     t = time.time()
     try:
-        tts(reply, wav, voice=use_voice)
+        tts(reply, wav, voice=use_voice, speed=_spd,
+            role=(_mood or None), auto_emotion=_auto_emo)
     except Exception as e:  # noqa: BLE001
         yield {"type": "error", "message": f"Ovoz xatosi: {e}"}
         return

@@ -33,7 +33,7 @@ export function AvatarEditor({ base, onSave, onDelete, onCancel, go }) {
     voice: "madina", language: "uz", extraMargin: 16, fps: 25, maxDim: 1280,
     blinkRate: 4, headMotion: 0.45, persona: "", sessions: 0, avgLatency: 0, cacheRate: 0, csat: 0,
     suggestions: ["", "", ""], updated: "Bugun", respLen: "short", temperature: 0.4,
-    speechRate: 0, hasPhoto: false,
+    speechRate: 0, voiceMood: "", voiceSpeed: 1.0, hasPhoto: false,
   });
   const [tab, setTab] = useState("portrait");
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
@@ -267,6 +267,22 @@ function TabPortrait({ draft, set, setP, savedId, uploading, photoErr, photoVer,
 }
 
 /* ── Tab: Voice & Language ── */
+// Har provayder qo'llaydigan uslublar (mood/rol) — {qiymat, o'zbekcha yorliq}.
+// Bo'sh qiymat "" = Avto (dinamik — jumla mazmuniga qarab o'zgaradi).
+const MOODS_BY_PROVIDER = {
+  aisha: [
+    { v: "", label: "Avto" }, { v: "Neutral", label: "Neytral" },
+    { v: "Cheerful", label: "Quvnoq" }, { v: "Happy", label: "Xursand" },
+    { v: "Sad", label: "G‘amgin" },
+  ],
+  yandex_v3: [
+    { v: "", label: "Avto" }, { v: "neutral", label: "Neytral" },
+    { v: "friendly", label: "Do‘stona" }, { v: "strict", label: "Qat‘iy" },
+    { v: "whisper", label: "Pichirlash" },
+  ],
+};
+const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
 function TabVoice({ draft, set }) {
   // Ovoz namunasi (preview) — ▶ bosilganda o'sha ovozni o'z tilida eshittiradi.
   const [playing, setPlaying] = useState("");
@@ -294,43 +310,76 @@ function TabVoice({ draft, set }) {
     set({ language: code, voice: v || draft.voice,
           langVoices: { ...langVoices, [code]: v || langVoices[code] } });
   };
-  // Ovoz tanlash = joriy TIL uchun saqlash (+ asosiy til ovozi).
+  // Ovoz tanlash = joriy TIL uchun saqlash (+ asosiy til ovozi). Uslub avtoga qaytadi
+  // (yangi ovoz boshqa uslub to'plamiga ega bo'lishi mumkin).
   const pickVoice = (id) => set({
-    voice: id, langVoices: { ...langVoices, [draft.language]: id },
+    voice: id, langVoices: { ...langVoices, [draft.language]: id }, voiceMood: "",
   });
+  const langVoiceList = VOICES.filter((v) => langMatch(v, draft.language));
+  const curSpec = VOICES.find((v) => v.id === curVoice) || {};
+  const moods = MOODS_BY_PROVIDER[curSpec.provider] || null;   // null = uslub yo'q
+  const spd = Number(draft.voiceSpeed) || 1.0;
+
   return (
-    <Section title="Ovoz va til" desc="Har til uchun alohida ovoz tanlang — jonli suhbatda tanlangan tilda shu ovoz bilan gapiradi.">
-      <Field label="Til" hint="Tilni tanlab, o'sha til uchun ovozni belgilang. Har til alohida saqlanadi.">
-        <div className="ed-lang">
-          {LANGUAGES.map((l) => (
-            <button key={l.code} className={"ed-lang-btn" + (draft.language === l.code ? " on" : "")} onClick={() => pickLang(l.code)}>
-              <span className="ed-lang-flag">{l.flag}</span><span>{l.native}</span>
-              {langVoices[l.code] && <span className="ed-lang-vdot" title="Ovoz tanlangan">●</span>}
+    <Section title="Ovoz sozlamalari" desc="Ovoz, til, uslub va tezlik — jonli suhbatda shu sozlamalar bilan gapiradi. Har til uchun ovoz alohida saqlanadi.">
+      {/* Mockup uslubidagi ixcham qator: OVOZ · TIL · USLUB · TEZLIK */}
+      <div className="ed-vrow">
+        <div className="ed-vctl">
+          <label>Ovoz</label>
+          <div className="ed-vpill">
+            <I.mic size={15} />
+            <select value={curVoice} onChange={(e) => pickVoice(e.target.value)}>
+              {langVoiceList.map((v) => (
+                <option key={v.id} value={v.id}>{v.name} · {v.tag}</option>
+              ))}
+            </select>
+            <button className={"ed-vplay" + (playing === curVoice ? " on" : "")}
+              onClick={(e) => preview(e, curVoice)} title="Eshitish" type="button">
+              {playing === curVoice ? <I.pause size={12} /> : <I.play size={12} />}
             </button>
-          ))}
+          </div>
         </div>
-      </Field>
 
-      <Field label={`Ovoz · ${(LANGUAGES.find((l) => l.code === draft.language) || {}).native || ""}`}>
-        <div className="ed-voices">
-          {VOICES.filter((v) => langMatch(v, draft.language)).map((v) => (
-            <button key={v.id} className={"ed-voice" + (curVoice === v.id ? " on" : "")} onClick={() => pickVoice(v.id)}>
-              <div className="ed-voice-av" style={{ background: v.gender === "Ayol" || v.gender==="Friendly" ? "var(--brass)" : "var(--navy)" }}>{v.name[0]}</div>
-              <div className="ed-voice-meta">
-                <div className="ed-voice-name">{v.name}</div>
-                <div className="ed-voice-sub">{v.gender} · {v.tag}</div>
-              </div>
-              <div className={"ed-voice-play" + (playing === v.id ? " on" : "")} onClick={(e) => preview(e, v.id)} title="Eshitish">
-                {playing === v.id ? <I.pause size={12} /> : <I.play size={12} />}
-              </div>
-            </button>
-          ))}
+        <div className="ed-vctl">
+          <label>Til</label>
+          <div className="ed-vpill">
+            <I.globe size={15} />
+            <select value={draft.language} onChange={(e) => pickLang(e.target.value)}>
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>{l.native}</option>
+              ))}
+            </select>
+          </div>
         </div>
-      </Field>
 
-      <Field label={`Nutq tezligi · ${draft.speechRate > 0 ? "+" : ""}${draft.speechRate}%`} hint="Manfiy = sekinroq, musbat = tezroq.">
-        <Range value={draft.speechRate} min={-30} max={30} step={5} onChange={(v) => set({ speechRate: v })} />
-      </Field>
+        <div className="ed-vctl">
+          <label>Uslub</label>
+          <div className={"ed-vpill" + (moods ? "" : " off")}>
+            <I.spark size={15} />
+            <select value={draft.voiceMood || ""} disabled={!moods}
+              onChange={(e) => set({ voiceMood: e.target.value })}>
+              {moods
+                ? moods.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)
+                : <option value="">—</option>}
+            </select>
+          </div>
+        </div>
+
+        <div className="ed-vctl">
+          <label>Tezlik</label>
+          <div className="ed-vpill">
+            <I.bolt size={15} />
+            <select value={spd} onChange={(e) => set({ voiceSpeed: Number(e.target.value) })}>
+              {SPEEDS.map((s) => (
+                <option key={s} value={s}>{s.toFixed(2).replace(/0$/, "")}x</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+      {moods === null && (
+        <div className="ed-vhint">Bu ovoz uslub (mood) qo‘llamaydi — Aisha yoki Yulduz ovozini tanlang.</div>
+      )}
     </Section>
   );
 }

@@ -147,9 +147,13 @@ YANDEX_TTS_V3_URL = "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis"
 # Auth: X-Api-Key header (AISHA_API_KEY .env). Sync: 201 + {"audio_path": CDN wav}.
 AISHA_TTS_URL  = "https://back.aisha.group/api/v1/tts/post/"
 AISHA_BASE     = "https://back.aisha.group"
-# Emotsiya rolini (Yandex uslubi) Aisha Gulnoza mood'iga moslash (auto_emotion uchun).
+# Emotsiya → Aisha Gulnoza mood'i. Ikki manba: (a) auto_emotion Yandex-uslub rol
+# qaytaradi (friendly/strict/...) — moslanadi; (b) editordan to'g'ridan Aisha mood
+# (Neutral/Cheerful/Happy/Sad) kelsa — o'zi (identity). Registrsiz qidiriladi.
+_AISHA_MOODS = {"neutral", "cheerful", "happy", "sad"}
 _AISHA_MOOD = {"friendly": "Cheerful", "strict": "Neutral",
-               "whisper": "Sad", "neutral": "Neutral"}
+               "whisper": "Sad", "neutral": "Neutral",
+               "cheerful": "Cheerful", "happy": "Happy", "sad": "Sad"}
 
 
 def _trim_to_wav(tmp_audio: str, wav_path: str, extra_af: str = ""):
@@ -473,6 +477,10 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
         chunks = _split_text(text) or [text]
         tmps = [wav_path.replace(".wav", f".p{i}.ogg") for i in range(len(chunks))]
         yx_speed = max(0.5, min(2.0, spec.get("speed", 1.0) * speed))
+        # Rol himoyasi: faqat SHU ovoz qo'llaydigan rol yuboriladi (registrsiz). Aisha
+        # mood (Cheerful/...) yoki noma'lum qiymat kelsa — spec standartiga tushamiz.
+        _allowed = ROLE_VOICES.get(voice, set())
+        _yx_role = (eff_role or "").lower() if (eff_role or "").lower() in _allowed else spec.get("role")
 
         def _synth(i_ch):
             i, ch = i_ch
@@ -481,7 +489,7 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
                             speed=yx_speed)
             else:
                 _tts_yandex_v3(ch, tmps[i], spec["voice"], speed=yx_speed,
-                               role=eff_role, pitch=eff_pitch or 0.0)
+                               role=_yx_role, pitch=eff_pitch or 0.0)
 
         if len(chunks) == 1:
             _synth((0, chunks[0]))
@@ -495,7 +503,8 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
         chunks = _split_text(text, 900) or [text]
         tmps = [wav_path.replace(".wav", f".a{i}.wav") for i in range(len(chunks))]
         a_speed = max(0.5, min(2.0, spec.get("speed", 1.0) * speed))
-        a_mood = (_AISHA_MOOD.get(eff_role, "Neutral") if eff_role
+        # Mood: eff_role (auto yoki editordan) → Aisha mood; registrsiz moslash.
+        a_mood = (_AISHA_MOOD.get((eff_role or "").lower(), "Neutral") if eff_role
                   else spec.get("mood", "Neutral"))
 
         def _synth_a(i_ch):

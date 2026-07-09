@@ -43,6 +43,11 @@ class AvatarCreate(BaseModel):
     respLen: Literal["short", "medium", "long"] = "short"
     temperature: float = Field(0.4, ge=0.0, le=1.0)
     speechRate: int = Field(0, ge=-30, le=30)
+    # Ovoz uslubi (mood/rol) — ovozga qarab: Aisha=Neutral/Cheerful/Happy/Sad,
+    # Yandex yulduz=neutral/friendly/strict/whisper. Bo'sh = dinamik (auto-emotsiya).
+    voiceMood: str = Field("", max_length=20)
+    # Nutq tezligi ko'paytuvchisi (0.5 sekin – 2.0 tez). 1.0 = normal.
+    voiceSpeed: float = Field(1.0, ge=0.5, le=2.0)
 
     fps: Literal[20, 25, 30] = 25
     blinkRate: int = Field(4, ge=2, le=8)
@@ -95,6 +100,8 @@ class AvatarUpdate(BaseModel):
     respLen: Optional[Literal["short", "medium", "long"]] = None
     temperature: Optional[float] = Field(None, ge=0.0, le=1.0)
     speechRate: Optional[int] = Field(None, ge=-30, le=30)
+    voiceMood: Optional[str] = Field(None, max_length=20)
+    voiceSpeed: Optional[float] = Field(None, ge=0.5, le=2.0)
 
     fps: Optional[Literal[20, 25, 30]] = None
     blinkRate: Optional[int] = Field(None, ge=2, le=8)
