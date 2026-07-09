@@ -65,6 +65,29 @@ def _slow_ms() -> int:
         return 0
 
 
+class SubpathPrefixMiddleware:
+    """`/avatar` prefiksini olib tashlaydi — BITTA `/avatar/` base build har uch
+    holatda ishlasin:
+      • to'g'ridan (192.168.136.153:8100/):  /avatar/assets → /assets, /avatar/api → /api
+      • proksi orqali (nbt.railway.uz/avatar/): nginx ALLAQACHON strip qiladi → bu no-op
+      • lokal dev (base '/'):                  prefiks yo'q → no-op
+    Xom ASGI (routing/statik mount'dan OLDIN scope path'ni o'zgartiradi). WS yo'li
+    (/api/ws/avatar/realtime) '/avatar/' bilan boshlanmaydi → tegilmaydi."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope.get("path", "")
+            if path == "/avatar":
+                scope = {**scope, "path": "/", "raw_path": b"/"}
+            elif path.startswith("/avatar/"):
+                new = path[len("/avatar"):]           # "/avatar/x" → "/x"
+                scope = {**scope, "path": new, "raw_path": new.encode("utf-8")}
+        await self.app(scope, receive, send)
+
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]

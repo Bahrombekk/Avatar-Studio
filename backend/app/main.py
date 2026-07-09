@@ -126,7 +126,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     from app.core.config import get_settings
     from app.core.logging import configure_logging
-    from app.core.middleware import RequestIDMiddleware
+    from app.core.middleware import RequestIDMiddleware, SubpathPrefixMiddleware
 
     settings = get_settings()
     configure_logging(settings.LOG_LEVEL, settings.LOG_FORMAT,
@@ -135,6 +135,9 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Madina Avatar (LP-MuseTalk)", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
+    # ENG TASHQI (oxirgi add = birinchi ishlaydi): /avatar prefiksini routingdan
+    # OLDIN olib tashlaydi → bitta /avatar/ build to'g'ridan ham, proksi orqali ham ishlaydi.
+    app.add_middleware(SubpathPrefixMiddleware)
 
     app.include_router(auth.router)        # /api/auth/login, /check
     app.include_router(chat.router)
