@@ -30,6 +30,10 @@ VOICES = {
                # "friendly" = iliq, jonli ohang (jalb qiluvchi yordamchi uchun).
                # O'chirish/o'zgartirish: env YULDUZ_ROLE (bo'sh = role yubormaydi).
                "role": os.environ.get("YULDUZ_ROLE", "friendly").strip() or None},
+    # Aisha (back.aisha.group) — mahalliy o'zbek ovozi. Mood: Neutral|Cheerful|Happy|Sad.
+    "gulnoza": {"provider": "aisha", "voice": "Gulnoza", "lang": "uz-UZ",
+                "label": "Gulnoza (Aisha)", "speed": 1.0, "mood": "Neutral",
+                "smooth_af": _YX_SMOOTH},
     # ── Rus ──
     "ru_dmitry":   {"provider": "edge", "voice": "ru-RU-DmitryNeural",   "label": "Dmitriy (edge)"},
     "ru_svetlana": {"provider": "edge", "voice": "ru-RU-SvetlanaNeural", "label": "Svetlana (edge)"},
@@ -54,7 +58,7 @@ DEFAULT_VOICE = "madina"
 
 # Til → o'sha til uchun standart ovoz (avatar.langVoices bermasa fallback).
 _LANG_DEFAULT_VOICE = {"uz": "madina", "en": "en_ava", "ru": "ru_marina", "kk": "kk_aigul"}
-_UZ_VOICES = {"madina", "sardor", "nigora", "yulduz"}
+_UZ_VOICES = {"madina", "sardor", "nigora", "yulduz", "gulnoza"}
 
 
 def voice_for(avatar: dict, language: str = None) -> str:
@@ -82,7 +86,10 @@ def voice_for(avatar: dict, language: str = None) -> str:
 # ── Dinamik emotsiya (jumla mazmuniga qarab rol/ohang) ──
 # Qaysi ovozlar Yandex v3 rollarini qo'llaydi va qaysi rollar xavfsiz.
 # (yulduz: neutral|strict|friendly|whisper — boshqa rollar HTTP 400 beradi.)
-ROLE_VOICES = {"yulduz": {"neutral", "strict", "friendly", "whisper"}}
+# Emotsiya (role) qo'llaydigan ovozlar. gulnoza (Aisha) rollari _AISHA_MOOD orqali
+# Aisha mood'iga o'giriladi (friendly→Cheerful, whisper→Sad, ...).
+ROLE_VOICES = {"yulduz": {"neutral", "strict", "friendly", "whisper"},
+               "gulnoza": {"neutral", "strict", "friendly", "whisper"}}
 
 # O'zbekcha kalit-so'zlar (registrsiz, apostrof birxillashtirilgan holda qidiriladi).
 _EMO_SOFT = ("kechiras", "uzr", "afsus", "afsuski", "achinar", "tushunaman",
@@ -135,6 +142,14 @@ _TRIM_AF = (
 
 YANDEX_TTS_URL    = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
 YANDEX_TTS_V3_URL = "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis"
+
+# ── Aisha TTS (back.aisha.group) — o'zbek "Gulnoza" ovozi ──
+# Auth: X-Api-Key header (AISHA_API_KEY .env). Sync: 201 + {"audio_path": CDN wav}.
+AISHA_TTS_URL  = "https://back.aisha.group/api/v1/tts/post/"
+AISHA_BASE     = "https://back.aisha.group"
+# Emotsiya rolini (Yandex uslubi) Aisha Gulnoza mood'iga moslash (auto_emotion uchun).
+_AISHA_MOOD = {"friendly": "Cheerful", "strict": "Neutral",
+               "whisper": "Sad", "neutral": "Neutral"}
 
 
 def _trim_to_wav(tmp_audio: str, wav_path: str, extra_af: str = ""):
@@ -323,6 +338,50 @@ def _tts_yandex_v3(text: str, tmp_path: str, voice_id: str, speed: float = 1.0,
     raise RuntimeError(f"Yandex TTS v3 tarmoq xatosi (4 urinish): {last_err}")
 
 
+def _tts_aisha(text: str, tmp_path: str, model: str = "Gulnoza",
+               mood: str = "Neutral", speed: float = 1.0):
+    """Aisha (back.aisha.group) TTS — o'zbek Gulnoza ovozi.
+
+    Sync so'rov: POST /api/v1/tts/post/ (X-Api-Key) → 201 {"audio_path": CDN wav}.
+    Audio CDN'dan yuklab tmp_path'ga yoziladi (keyin _parts_to_wav 16k mono qiladi).
+    """
+    import requests
+    key = load_env_var("AISHA_API_KEY")
+    if not key:
+        raise RuntimeError("AISHA_API_KEY topilmadi (.env)")
+    data = {"transcript": text, "language": "uz", "model": model, "mood": mood}
+    # speed: 0 = model standarti; 0.5–2.0 custom. 1.0 ≈ normal — faqat farq bo'lsa yuboramiz.
+    if speed and abs(speed - 1.0) > 0.01:
+        data["speed"] = f"{max(0.5, min(2.0, speed)):.2f}"
+    hdr = {"X-Api-Key": key, "Accept-Language": "uz"}
+    last = None
+    for attempt in range(3):
+        try:
+            r = requests.post(AISHA_TTS_URL, headers=hdr, data=data, timeout=30)
+            if r.status_code in (200, 201):
+                j = r.json()
+                url = j.get("audio_path") or j.get("audio_url")
+                if not url:
+                    raise RuntimeError(f"audio_path yo'q: {str(j)[:150]}")
+                if not url.startswith("http"):
+                    url = AISHA_BASE + url
+                a = requests.get(url, timeout=30)
+                a.raise_for_status()
+                with open(tmp_path, "wb") as f:
+                    f.write(a.content)
+                return
+            # 402 = balans, 400 = xato parametr — qayta urinish yordam bermaydi.
+            if r.status_code in (400, 401, 402):
+                raise RuntimeError(f"Aisha TTS {r.status_code}: {r.text[:200]}")
+            last = f"HTTP {r.status_code}: {r.text[:150]}"
+        except RuntimeError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            last = f"{type(e).__name__}: {str(e)[:150]}"
+        time.sleep(0.5 * (attempt + 1))
+    raise RuntimeError(f"Aisha TTS tarmoq xatosi (3 urinish): {last}")
+
+
 # ── Ovoz namunasi (preview) — editorda har ovozni eshitib tanlash uchun ──
 _PREVIEW_TEXT = {
     "uz": "Assalomu alaykum! Men sizning virtual yordamchingizman.",
@@ -429,6 +488,26 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
         else:
             with ThreadPoolExecutor(max_workers=min(6, len(chunks))) as ex:
                 list(ex.map(_synth, list(enumerate(chunks))))
+    elif provider == "aisha":
+        # Aisha bitta REST chaqiruvi (X-Api-Key). Uzun matnda 1000-belgi limiti bor →
+        # ehtiyot uchun bo'lamiz; bo'laklar PARALLEL (kechikish sum→max).
+        from concurrent.futures import ThreadPoolExecutor
+        chunks = _split_text(text, 900) or [text]
+        tmps = [wav_path.replace(".wav", f".a{i}.wav") for i in range(len(chunks))]
+        a_speed = max(0.5, min(2.0, spec.get("speed", 1.0) * speed))
+        a_mood = (_AISHA_MOOD.get(eff_role, "Neutral") if eff_role
+                  else spec.get("mood", "Neutral"))
+
+        def _synth_a(i_ch):
+            i, ch = i_ch
+            _tts_aisha(ch, tmps[i], model=spec.get("voice", "Gulnoza"),
+                       mood=a_mood, speed=a_speed)
+
+        if len(chunks) == 1:
+            _synth_a((0, chunks[0]))
+        else:
+            with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as ex:
+                list(ex.map(_synth_a, list(enumerate(chunks))))
     else:
         raise RuntimeError(f"Noma'lum provayder: {provider}")
     _parts_to_wav(tmps, wav_path, extra_af=smooth)

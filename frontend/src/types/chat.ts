@@ -1,6 +1,6 @@
 /* Suhbat, ovoz va til tiplari. */
 
-export type VoiceProvider = "edge" | "yandex" | "yandex_v3" | string;
+export type VoiceProvider = "edge" | "yandex" | "yandex_v3" | "aisha" | string;
 
 export interface Voice {
   id: string;
