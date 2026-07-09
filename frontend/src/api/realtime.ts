@@ -12,8 +12,10 @@ export function openRealtimeWS(
   lang?: string,
 ): WebSocket {
   const proto = location.protocol === "https:" ? "wss" : "ws";
+  // Base-prefiks (dev "", Spark "/avatar") — WS ham subpath ostidan o'tsin.
+  const P = import.meta.env.BASE_URL.replace(/\/$/, "");
   const url =
-    `${proto}://${location.host}/api/realtime/ws` +
+    `${proto}://${location.host}${P}/api/realtime/ws` +
     `?avatar=${encodeURIComponent(avatarId)}&voice=${encodeURIComponent(voice)}` +
     (lang ? `&lang=${encodeURIComponent(lang)}` : "");
   const ws = new WebSocket(url);

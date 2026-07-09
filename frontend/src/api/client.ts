@@ -99,10 +99,15 @@ async function errorDetail(r: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
+// Base-prefiks: dev = "" , Spark = "/avatar" (vite base'dan). Barcha API/WS
+// chaqiruvlar shu bilan boshlanadi → /avatar/ subpath ostida proksi ularni
+// backendga to'g'ri yo'naltiradi (aks holda /api absolyut bo'lib domen ildiziga ketardi).
+const P = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export const API = {
   // ── Admin auth ──
   async login(password: string): Promise<string> {
-    const r = await fetch("/api/auth/login", {
+    const r = await fetch(P + "/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password }),
@@ -116,7 +121,7 @@ export const API = {
   async checkAuth(): Promise<boolean> {
     if (!getToken()) return false;
     try {
-      const r = await fetch("/api/auth/check", { headers: authHeaders() });
+      const r = await fetch(P + "/api/auth/check", { headers: authHeaders() });
       return r.ok;
     } catch {
       return false;
@@ -125,12 +130,12 @@ export const API = {
 
   // ── Ishlash preseti (yengil/og'ir) ──
   async getPerf(): Promise<{ preset: string; max_dim_cap: number; batch_size: number }> {
-    const r = await fetch("/perf");
+    const r = await fetch(P + "/perf");
     if (!r.ok) throw new Error("perf yuklanmadi");
     return (await r.json()) as { preset: string; max_dim_cap: number; batch_size: number };
   },
   async setPerf(preset: "light" | "heavy"): Promise<{ preset: string }> {
-    const r = await fetch("/perf", {
+    const r = await fetch(P + "/perf", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ preset }),
@@ -140,13 +145,13 @@ export const API = {
   },
 
   async listAvatars(): Promise<Avatar[]> {
-    const r = await fetch("/api/avatars");
+    const r = await fetch(P + "/api/avatars");
     if (!r.ok) throw new Error("avatars yuklanmadi");
     return ((await r.json()) as { avatars: Avatar[] }).avatars;
   },
 
   async createAvatar(data: AvatarDraft): Promise<Avatar> {
-    const r = await fetch("/api/avatars", {
+    const r = await fetch(P + "/api/avatars", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
@@ -156,7 +161,7 @@ export const API = {
   },
 
   async updateAvatar(id: string, data: Partial<Avatar>): Promise<Avatar> {
-    const r = await fetch("/api/avatars/" + encodeURIComponent(id), {
+    const r = await fetch(P + "/api/avatars/" + encodeURIComponent(id), {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
@@ -166,7 +171,7 @@ export const API = {
   },
 
   async deleteAvatar(id: string): Promise<{ ok: boolean }> {
-    const r = await fetch("/api/avatars/" + encodeURIComponent(id), {
+    const r = await fetch(P + "/api/avatars/" + encodeURIComponent(id), {
       method: "DELETE",
       headers: authHeaders(),
     });
@@ -178,7 +183,7 @@ export const API = {
   async uploadPhoto(id: string, file: File): Promise<Avatar> {
     const fd = new FormData();
     fd.append("file", file);
-    const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/photo", {
+    const r = await fetch(P + "/api/avatars/" + encodeURIComponent(id) + "/photo", {
       method: "POST",
       headers: authHeaders(),
       body: fd,
@@ -189,13 +194,13 @@ export const API = {
 
   // Saqlangan portret URL'i (cache buzish uchun versiya bilan).
   photoUrl(id: string, ver?: number): string {
-    return "/api/avatars/" + encodeURIComponent(id) + "/photo?v=" + (ver || 0);
+    return P + "/api/avatars/" + encodeURIComponent(id) + "/photo?v=" + (ver || 0);
   },
 
   // Idle (blink) video generatsiyani boshlash (fon job).
   async buildIdle(id: string): Promise<{ ok: boolean; state: string }> {
     const r = await fetch(
-      "/api/avatars/" + encodeURIComponent(id) + "/build-idle",
+      P + "/api/avatars/" + encodeURIComponent(id) + "/build-idle",
       { method: "POST", headers: authHeaders() },
     );
     if (!r.ok) throw new Error(await errorDetail(r, "idle yaratilmadi"));
@@ -207,7 +212,7 @@ export const API = {
     id: string,
   ): Promise<{ ok: boolean; state: string; stage: string }> {
     const r = await fetch(
-      "/api/avatars/" + encodeURIComponent(id) + "/build-musetalk",
+      P + "/api/avatars/" + encodeURIComponent(id) + "/build-musetalk",
       { method: "POST", headers: authHeaders() },
     );
     if (!r.ok) throw new Error(await errorDetail(r, "artefakt yaratilmadi"));
@@ -219,7 +224,7 @@ export const API = {
     id: string,
   ): Promise<{ ok: boolean; state: string; stage: string }> {
     const r = await fetch(
-      "/api/avatars/" + encodeURIComponent(id) + "/build-motion",
+      P + "/api/avatars/" + encodeURIComponent(id) + "/build-motion",
       { method: "POST", headers: authHeaders() },
     );
     if (!r.ok) throw new Error(await errorDetail(r, "harakat qurilmadi"));
@@ -228,24 +233,24 @@ export const API = {
 
   // Generatsiya holati (polling).
   async buildStatus(id: string): Promise<BuildStatus> {
-    const r = await fetch("/api/avatars/" + encodeURIComponent(id) + "/build");
+    const r = await fetch(P + "/api/avatars/" + encodeURIComponent(id) + "/build");
     if (!r.ok) throw new Error("holat olinmadi");
     return (await r.json()) as BuildStatus;
   },
 
   // Generatsiya qilingan idle video URL'i.
   idleUrl(id: string, ver?: number): string {
-    return "/api/avatars/" + encodeURIComponent(id) + "/idle?v=" + (ver || 0);
+    return P + "/api/avatars/" + encodeURIComponent(id) + "/idle?v=" + (ver || 0);
   },
 
   async analytics(): Promise<Analytics> {
-    const r = await fetch("/api/analytics", { headers: authHeaders() });
+    const r = await fetch(P + "/api/analytics", { headers: authHeaders() });
     if (!r.ok) throw new Error("analitika yuklanmadi");
     return (await r.json()) as Analytics;
   },
 
   async voices(): Promise<Voice[]> {
-    const r = await fetch("/voices");
+    const r = await fetch(P + "/voices");
     if (!r.ok) throw new Error("ovozlar yuklanmadi");
     // /voices → {default, voices:[...]} (massiv emas, obyekt). Massivni ajratamiz.
     const data = (await r.json()) as { voices?: Voice[] } | Voice[];
@@ -258,7 +263,7 @@ export const API = {
     avatar_id: string; mode: "script" | "gpt"; text?: string; prompt?: string;
     voice?: string | null; hd?: boolean; title?: string;
   }): Promise<{ render_id: string }> {
-    const r = await fetch("/api/studio/render", {
+    const r = await fetch(P + "/api/studio/render", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
@@ -268,7 +273,7 @@ export const API = {
   },
 
   async studioRenders(): Promise<Render[]> {
-    const r = await fetch("/api/studio/renders", { headers: authHeaders() });
+    const r = await fetch(P + "/api/studio/renders", { headers: authHeaders() });
     if (!r.ok) throw new Error("kutubxona yuklanmadi");
     return ((await r.json()) as { renders: Render[] }).renders;
   },
@@ -277,7 +282,7 @@ export const API = {
     id: string,
   ): Promise<{ state: string; error?: string; meta?: Render }> {
     const r = await fetch(
-      `/api/studio/render/${encodeURIComponent(id)}/status`,
+      `${P}/api/studio/render/${encodeURIComponent(id)}/status`,
       { headers: authHeaders() },
     );
     if (!r.ok) throw new Error("holat olinmadi");
@@ -285,7 +290,7 @@ export const API = {
   },
 
   async studioDeleteRender(id: string): Promise<{ deleted: string }> {
-    const r = await fetch(`/api/studio/render/${encodeURIComponent(id)}`, {
+    const r = await fetch(`${P}/api/studio/render/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
@@ -294,7 +299,7 @@ export const API = {
   },
 
   studioVideoUrl(id: string): string {
-    return `/api/studio/render/${encodeURIComponent(id)}/video`;
+    return `${P}/api/studio/render/${encodeURIComponent(id)}/video`;
   },
 
   // ── Tayyor javoblar (pre-rendered Q&A) ──
@@ -302,7 +307,7 @@ export const API = {
     avatar_id: string; questions: string[]; mode: "script" | "gpt";
     text?: string; prompt?: string; voice?: string | null; hd?: boolean; title?: string;
   }): Promise<{ canned_id: string }> {
-    const r = await fetch("/api/canned", {
+    const r = await fetch(P + "/api/canned", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
@@ -312,19 +317,19 @@ export const API = {
   },
 
   async cannedList(): Promise<Canned[]> {
-    const r = await fetch("/api/canned", { headers: authHeaders() });
+    const r = await fetch(P + "/api/canned", { headers: authHeaders() });
     if (!r.ok) throw new Error("kutubxona yuklanmadi");
     return ((await r.json()) as { canned: Canned[] }).canned;
   },
 
   async cannedStatus(id: string): Promise<{ state: string; error?: string; meta?: Canned }> {
-    const r = await fetch(`/api/canned/${encodeURIComponent(id)}/status`, { headers: authHeaders() });
+    const r = await fetch(`${P}/api/canned/${encodeURIComponent(id)}/status`, { headers: authHeaders() });
     if (!r.ok) throw new Error("holat olinmadi");
     return (await r.json()) as { state: string; error?: string; meta?: Canned };
   },
 
   async cannedUpdateQuestions(id: string, questions: string[]): Promise<void> {
-    const r = await fetch(`/api/canned/${encodeURIComponent(id)}/questions`, {
+    const r = await fetch(`${P}/api/canned/${encodeURIComponent(id)}/questions`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ questions }),
@@ -333,7 +338,7 @@ export const API = {
   },
 
   async cannedDelete(id: string): Promise<{ deleted: string }> {
-    const r = await fetch(`/api/canned/${encodeURIComponent(id)}`, {
+    const r = await fetch(`${P}/api/canned/${encodeURIComponent(id)}`, {
       method: "DELETE", headers: authHeaders(),
     });
     if (!r.ok) throw new Error("o'chirilmadi");
@@ -341,17 +346,17 @@ export const API = {
   },
 
   cannedVideoUrl(id: string): string {
-    return `/api/canned/${encodeURIComponent(id)}/video`;
+    return `${P}/api/canned/${encodeURIComponent(id)}/video`;
   },
 
   // Ovoz namunasi (preview) — editorda eshitib tanlash uchun. (/voices — /api prefiksiz)
   voicePreviewUrl(id: string): string {
-    return `/voices/${encodeURIComponent(id)}/preview`;
+    return `${P}/voices/${encodeURIComponent(id)}/preview`;
   },
 
   // ── Bilim bazasi (RAG) ──
   async knowledgeList(id: string): Promise<{ sources: KnowledgeSource[]; faqs: KnowledgeFaq[] }> {
-    const r = await fetch(`/api/avatars/${encodeURIComponent(id)}/knowledge`, {
+    const r = await fetch(`${P}/api/avatars/${encodeURIComponent(id)}/knowledge`, {
       headers: authHeaders(),
     });
     if (!r.ok) throw new Error("bilim bazasi yuklanmadi");
@@ -361,7 +366,7 @@ export const API = {
   async knowledgeUpload(id: string, file: File): Promise<{ ok: boolean; id: string }> {
     const fd = new FormData();
     fd.append("file", file);
-    const r = await fetch(`/api/avatars/${encodeURIComponent(id)}/knowledge/upload`, {
+    const r = await fetch(`${P}/api/avatars/${encodeURIComponent(id)}/knowledge/upload`, {
       method: "POST",
       headers: authHeaders(),
       body: fd,
@@ -371,7 +376,7 @@ export const API = {
   },
 
   async knowledgeAddFaq(id: string, question: string, answer: string): Promise<{ ok: boolean; id: string }> {
-    const r = await fetch(`/api/avatars/${encodeURIComponent(id)}/knowledge/faq`, {
+    const r = await fetch(`${P}/api/avatars/${encodeURIComponent(id)}/knowledge/faq`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ question, answer }),
@@ -382,7 +387,7 @@ export const API = {
 
   async knowledgeDeleteSource(id: string, srcId: string): Promise<void> {
     const r = await fetch(
-      `/api/avatars/${encodeURIComponent(id)}/knowledge/source/${encodeURIComponent(srcId)}`,
+      `${P}/api/avatars/${encodeURIComponent(id)}/knowledge/source/${encodeURIComponent(srcId)}`,
       { method: "DELETE", headers: authHeaders() },
     );
     if (!r.ok) throw new Error("o'chirilmadi");
@@ -390,7 +395,7 @@ export const API = {
 
   async knowledgeDeleteFaq(id: string, faqId: string): Promise<void> {
     const r = await fetch(
-      `/api/avatars/${encodeURIComponent(id)}/knowledge/faq/${encodeURIComponent(faqId)}`,
+      `${P}/api/avatars/${encodeURIComponent(id)}/knowledge/faq/${encodeURIComponent(faqId)}`,
       { method: "DELETE", headers: authHeaders() },
     );
     if (!r.ok) throw new Error("o'chirilmadi");
@@ -398,7 +403,7 @@ export const API = {
 
   // ── Suhbatlar (saqlangan transkriptlar) ──
   async conversations(limit = 100): Promise<Conversation[]> {
-    const r = await fetch(`/api/conversations?limit=${limit}`, { headers: authHeaders() });
+    const r = await fetch(`${P}/api/conversations?limit=${limit}`, { headers: authHeaders() });
     if (!r.ok) throw new Error("suhbatlar yuklanmadi");
     return ((await r.json()) as { conversations: Conversation[] }).conversations;
   },
@@ -406,7 +411,7 @@ export const API = {
   async conversation(
     id: number,
   ): Promise<{ conversation: Conversation; messages: ConversationMessage[] }> {
-    const r = await fetch(`/api/conversations/${id}`, { headers: authHeaders() });
+    const r = await fetch(`${P}/api/conversations/${id}`, { headers: authHeaders() });
     if (!r.ok) throw new Error("suhbat yuklanmadi");
     return (await r.json()) as {
       conversation: Conversation;
@@ -421,7 +426,7 @@ export const API = {
     voice: string,
     onEvent: ChatStreamHandler,
   ): Promise<void> {
-    return fetch("/chat-stream", {
+    return fetch(P + "/chat-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, avatar_id: avatarId, voice }),
