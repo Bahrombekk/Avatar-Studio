@@ -15,6 +15,7 @@ import datetime
 import json
 import logging
 import queue
+import re
 import threading
 import time
 
@@ -194,12 +195,21 @@ def shutdown() -> None:
 # resolve_station None qaytarib jonli qidiruv ishlamas edi ("har doim topib bermaydi").
 # Bu nomlar FAQAT viloyat (bir xil nomли shahar/stansiya yo'q) → almashtirish xavfsiz.
 _REGION_ALIAS = {
-    # Viloyat → asosiy stansiya
-    "surxondaryo": "Termiz", "qashqadaryo": "Qarshi",
-    "xorazm": "Urgench", "xorezm": "Urgench", "sirdaryo": "Guliston",
-    # Shahar imlo variantlari (eticket API o'zига xos yozadi: Urgench/Qoqon/Margilan)
+    # Bitta asosiy bekatli viloyat → o'sha bekat (avtomatik).
+    "sirdaryo": "Guliston",
+    # Shahar imlo variantlari (eticket API o'zига xos yozadi: Urgench/Qoqon/Margilan).
     "urganch": "Urgench", "qo'qon": "Qoqon", "qoʻqon": "Qoqon",
     "marg'ilon": "Margilan", "margʻilon": "Margilan",
+}
+
+# Ko'p bekatli viloyat → bekatlar ro'yxati. Foydalanuvchi VILOYAT nomini aytса
+# (mas. "Surxondaryogacha"), avtomatik tanlamaymiz — qaysi BEKATgacha kerakligini
+# SO'RAYMIZ (aqlli aniqlashtirish). Bekatlar jonli eticket API'da tekshirilgan.
+_REGION_STATIONS = {
+    "surxondaryo": ["Termiz", "Denov", "Sariosiyo", "Boysun"],
+    "qashqadaryo": ["Qarshi", "Shahrisabz"],
+    "xorazm": ["Urgench", "Xiva", "Hazorasp"],
+    "xorezm": ["Urgench", "Xiva", "Hazorasp"],
 }
 
 
@@ -357,6 +367,17 @@ def railway_context(user_text: str, language: str = "uz") -> str:
         params = _extract_params(user_text, language)
         if not params:
             return ""
+        # AQLLI ANIQLASHTIRISH: foydalanuvchi ko'p bekatli VILOYAT nomini aytган bo'lsa
+        # (Surxondaryo), avtomatik bekat tanlamay — qaysi bekat kerakligini so'raymiz.
+        for _city in (params.get("to_city"), params.get("from_city")):
+            _sts = _REGION_STATIONS.get((_city or "").strip().lower())
+            if _sts:
+                return (f"VILOYAT ANIQLASHTIRISH: foydalanuvchi \"{_city}\" dedi, lekin bu "
+                        f"viloyatда bir nechta temir yo'l bekati bor: {', '.join(_sts)}. "
+                        f"Jonli jadval yoki narx berishdan OLDIN, qaysi bekatgacha "
+                        f"kerakligini iliq so'ra va shu bekatlarni sanab ber. Foydalanuvchi "
+                        f"bitta bekatni tanlagach jadval ko'rsatiladi. Hozir narx/jadval/vaqt "
+                        f"TO'QIMA — faqat aniqlashtiruvchi savol ber.")
         dep = resolve_station(params["from_city"])
         arv = resolve_station(params["to_city"])
         if not dep or not arv:
