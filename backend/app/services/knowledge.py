@@ -368,6 +368,22 @@ def _matrix(avatar_id: str):
     return mat, chunks, lex
 
 
+# Filler so'zlar — retrievalда signalga hissa qo'shmaydi ("kuzatuv kengashi HAQIDA
+# MA'LUMOT BER" da asosiy atama "kuzatuv kengashi"). Bularni olib "core" so'rov quramiz
+# va uni ham embed qilib dense MAX olamiz → broad savol embeddingi filler bilan suyulmaydi.
+# (Savol so'zlari kim/qancha/qachon QOLADI — ular signal bo'lishi mumkin.)
+_FILLER = {"haqida", "to'g'risida", "togrisida", "ma'lumot", "malumot", "ber", "bering",
+           "beringchi", "menga", "meni", "ayt", "ayting", "aytib", "aytingchi", "aytchi",
+           "gapir", "gapirib", "gapiring", "qisqacha", "bilmoqchiman", "bilsam", "iltimos",
+           "chi", "mumkinmi", "bo'ladimi", "boladimi"}
+
+
+def _core_query(query: str) -> str:
+    """Filler so'zlarni olib tashlab asosiy atamani qoldiradi ('' agar hammasi filler)."""
+    toks = [t for t in _tokens(query) if t not in _FILLER]
+    return " ".join(toks)
+
+
 def retrieve(avatar_id: str, query: str, k: int = 10, min_score: float = 0.28) -> list:
     """GIBRID retrieval: dense (embedding cosine) + lexical (BM25), RRF bilan birlashtirilgan.
     Dense — ma'no o'xshashligi; BM25 — aniq atamalar (ism, raqam, bekat nomi, kod) —
@@ -379,16 +395,24 @@ def retrieve(avatar_id: str, query: str, k: int = 10, min_score: float = 0.28) -
         if mat is None:
             return []
         n = len(chunks)
-        # ── Dense (embedding) ──
+        # ── Dense (embedding) — original + "core" (filler-siz) so'rov, dense MAX ──
+        # Broad savol ("X haqida ma'lumot ber") embeddingi filler bilan suyuladi; core
+        # so'rov ("X") toza mavzuга uradi. Ikkalasini BITTA embed chaqiruvида olamiz.
+        qn_text = norm_uz(query)
+        core_text = _core_query(query)
+        embed_in = [qn_text]
+        if core_text and core_text != qn_text.lower():
+            embed_in.append(core_text)
+        qv = _embed(embed_in)
         dense = np.zeros(n, dtype=np.float32)
-        qv = _embed([norm_uz(query)])
-        if qv:
-            q = np.array(qv[0], dtype=np.float32)
-            qn = np.linalg.norm(q)
-            if qn:
-                dense = mat @ (q / qn)
-        # ── Lexical (BM25) ──
-        bm = _bm25(_tokens(query), lex["tf"], lex["dl"], lex["df"], lex["avgdl"]) if lex else np.zeros(n)
+        for vec in qv:
+            a = np.array(vec, dtype=np.float32)
+            an = np.linalg.norm(a)
+            if an:
+                dense = np.maximum(dense, mat @ (a / an))
+        # ── Lexical (BM25) — core tokenlar (tozaroq atamalar), core bo'sh bo'lsa original ──
+        bm_toks = _tokens(core_text) or _tokens(query)
+        bm = _bm25(bm_toks, lex["tf"], lex["dl"], lex["df"], lex["avgdl"]) if lex else np.zeros(n)
         if not qv and not bm.any():
             return []
         # ── RRF birlashtirish (reciprocal rank fusion) ──
