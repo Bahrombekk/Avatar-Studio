@@ -1095,6 +1095,12 @@ _PREROLL_BURST = max(0, int(os.environ.get("RT_PREROLL_BURST", "15")))
 # "chala javob berib qotib qoladi" xatosining ildizi). Kutish paytida video
 # to'xtamaydi: idle kadrlar oqib turadi ("o'ylab turgan" ko'rinish).
 _GAP_MAX = max(5, int(os.environ.get("RT_GAP_MAX", "60")))
+# Oqim QOTISH chegarasi (s): prodyuser `proc.stdin.write`da bloklanib qolsa (brauzer
+# videoni iste'mol qilishni to'xtatgani/uzilgani → orqa-bosim) `cancel` ni KO'RA OLMAYDI
+# va GPU slotni cheksiz band qiladi (faqat keyingi navbat tiklardi). Watchdog: cancel
+# o'rnatilса YOKI shuncha soniya BIRORTA kadr yozilmasa (yozuv qotgan) ffmpeg'ni
+# o'ldiradi → stdin.write BrokenPipe beradi → prodyuser chiqadi, slot bo'shaydi.
+_STALL_MAX = max(5, int(os.environ.get("RT_STALL_MAX", "20")))
 
 
 def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = None,
@@ -1165,6 +1171,26 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
 
     # Audio'ni ALOHIDA thread yozadi — GPU loop'ni quvur to'lib bloklamaydi.
     audio_bq: _q.Queue = _q.Queue()
+
+    # Watchdog holati: oxirgi kadr yozilgan vaqt + prodyuser tugadi bayrog'i.
+    _last_prog = [time.time()]
+    _wd_done = threading.Event()
+
+    def _watchdog():
+        """Oqim qotsa (write bloklangan) yoki barge-in bo'lsa ffmpeg'ni o'ldiradi —
+        prodyuser stdin.write'da BrokenPipe olib chiqadi, GPU slot bo'shaydi."""
+        while not _wd_done.wait(1.0):
+            _stall = (cancel is not None and cancel.is_set()) or \
+                     (time.time() - _last_prog[0] > _STALL_MAX)
+            if _stall:
+                if not (cancel is not None and cancel.is_set()):
+                    log.warning("[streamq] oqim %ds yozilmadi (orqa-bosim/uzilish) — "
+                                "ffmpeg to'xtatiladi, GPU slot bo'shatiladi", _STALL_MAX)
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+                break
 
     def audio_writer():
         try:
@@ -1246,6 +1272,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                             _t0 = time.time()
                             audio_bq.put(sil)   # avans saqlanadi (video -_A_LEAD orqada)
                             proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
+                            _last_prog[0] = time.time()
                             if _sp and pos == 0:
                                 log.info("[TTFF] preroll 1-kadr ffmpeg'ga yozildi: %.2fs",
                                          time.time() - _sp0)
@@ -1293,6 +1320,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                             _t0 = time.time()
                             audio_bq.put(_sil)
                             proc.stdin.write(frames[pos % n].astype(np.uint8).tobytes())
+                            _last_prog[0] = time.time()
                             pos += 1
                             _dt = time.time() - _t0
                             if _dt < _spf:
@@ -1306,6 +1334,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                         break
                     if cancel is not None and cancel.is_set():   # barge-in: to'xtatamiz
                         break
+                    _last_prog[0] = time.time()   # jumla keldi — whisper/inference gapi qotish emas
                     # 1) jumla audiosi → audio yozuvchi thread (quvur orqali ffmpeg'ga)
                     pcm = _wav_pcm16(wav)
                     if pcm:
@@ -1362,6 +1391,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                             fr = _composite(ci, r)
                             if fr is not None:
                                 proc.stdin.write(fr.astype(np.uint8).tobytes())
+                                _last_prog[0] = time.time()
                                 last_fr = fr
                                 if _sp and _sp_first:
                                     log.info("[TTFF] 1-kadr ffmpeg'ga yozildi: %.2fs",
@@ -1388,6 +1418,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
             else:
                 log.error("streamq producer xato: %s", e, exc_info=True)
         finally:
+            _wd_done.set()              # watchdog to'xtasin (normal tugash — kill kerak emas)
             audio_bq.put(None)          # audio yozuvchi → audio_w'ni yopadi (EOF)
             try:
                 proc.stdin.close()
@@ -1395,6 +1426,7 @@ def musetalk_infer_stream_queue(chunk_queue, fps: int = 25, avatar_id: str = Non
                 pass
 
     threading.Thread(target=audio_writer, daemon=True).start()
+    threading.Thread(target=_watchdog, daemon=True).start()
     threading.Thread(target=producer, daemon=True).start()
     try:
         # os.read — bori bilan darrov qaytadi (64KB to'lishini kutmaydi) → birinchi
