@@ -161,6 +161,19 @@ def _decimal(m):
     return f"{num_to_uz(int(whole))} butun {fw}"
 
 
+# Telefon (O'zbekiston): +998 XX XXX XX XX (bo'shliq yoki tire bilan). Har guruh SON
+# sifatida o'qiladi (odam shunday aytadi), "+" → "plyus". BARCHA raqam qoidalaridan
+# OLDIN bajariladi (aks holda mingliklar birlashib / tire oraliq bo'lib buzilardi).
+_PHONE_RE = re.compile(r"(?<![\d.])(\+?)\s*998[\s\-]?(\d{2})[\s\-]?(\d{3})[\s\-]?(\d{2})[\s\-]?(\d{2})(?!\d)")
+
+
+def _phone(m):
+    plus = "plyus " if m.group(1) == "+" else ""
+    groups = [998, int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5))]
+    # Vergul → TTS'da guruhlar orasida tabiiy pauza.
+    return plus + ", ".join(num_to_uz(g) for g in groups)
+
+
 def _num(m):
     s = m.group(0).replace(" ", "").replace(" ", "")
     return num_to_uz(int(s))
@@ -173,6 +186,9 @@ def normalize_uz_tts(text: str) -> str:
         return text
     # 0) Apostrof/okina variantlarini yagona ' ga (so'z buzilib talaffuz qilinmasin).
     text = _canon_apostrophe(text)
+    # 0b) Telefon (+998 XX XXX XX XX) — BARCHA raqam qoidalaridan OLDIN (mingliklar
+    #     birlashib yoki tire oraliqqa aylanib buzilmasin).
+    text = _PHONE_RE.sub(_phone, text)
     # 1) Klass/poyezd kodi: raqam + bitta KIRIL harf (1С, 2В, 768Ф) — RAQAMLARDAN OLDIN.
     #    Faqat kiril (haqiqiy vagon kodlari kiril): lotin "3D/4K/5G/1080p" buzilmaydi.
     text = re.sub(r"\b(\d{1,4})([А-Яа-яЁё])\b", _seat, text)
