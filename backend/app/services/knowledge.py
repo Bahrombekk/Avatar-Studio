@@ -368,7 +368,7 @@ def _matrix(avatar_id: str):
     return mat, chunks, lex
 
 
-def retrieve(avatar_id: str, query: str, k: int = 4, min_score: float = 0.30) -> list:
+def retrieve(avatar_id: str, query: str, k: int = 6, min_score: float = 0.28) -> list:
     """GIBRID retrieval: dense (embedding cosine) + lexical (BM25), RRF bilan birlashtirilgan.
     Dense — ma'no o'xshashligi; BM25 — aniq atamalar (ism, raqam, bekat nomi, kod) —
     O'zbekda ikkalasi birga recall'ni sezilarli oshiradi. Xatoda/bo'shda []."""
@@ -423,14 +423,15 @@ def build_context_block(hits: list) -> str:
     """Topilgan bo'laklardan system-prompt qo'shimchasini quradi ('' agar bo'sh)."""
     if not hits:
         return ""
-    lines = ["MA'LUMOT BAZASI. Javobni FAQAT quyida keltirilgan ma'lumotga "
-             "asosla. QAT'IY QOIDA: quyida aniq yozilmagan biror raqam, narx, "
-             "summa, foiz, sana yoki telefon raqamini javobingda KELTIRMA hamda "
-             "o'zingdan to'qima yoki taxmin qilma. Agar so'ralgan aniq ma'lumot "
-             "(masalan chipta narxi) quyida bo'lmasa, uni bilmasligingni ochiq "
-             "ayt va rasmiy veb-sayt (masalan eticket.railway.uz) yoki "
-             "aniqlashtiruvchi savolni taklif qil. Umumiy tushuntirishlarda "
-             "muloyim va suhbatdosh bo'l, ammo faktlarni hech qachon to'qima:"]
+    lines = ["MA'LUMOT BAZASI. Javobni asosan quyidagi ma'lumotga asosla. Agar "
+             "foydalanuvchi so'ragan AYNAN narsa quyida bo'lmasa-yu, lekin YAQIN yoki "
+             "tegishli ma'lumot bo'lsa — 'bilmayman' deb RAD ETMA; o'rniga yumshoq "
+             "yo'naltirib bor ma'lumotni ber: masalan \"Agar siz ...ni nazarda tutgan "
+             "bo'lsangiz, ...\" deb boshlab, tegishli faktlarni ayt. FAQAT quyida aniq "
+             "keltirilmagan RAQAM, NARX, SUMMA, FOIZ, SANA yoki TELEFON kabi aniq faktni "
+             "o'zingdan TO'QIMA yoki taxmin qilma — bunday aniq fakt bo'lmasa, borini "
+             "ayt va rasmiy manba (eticket.railway.uz) yoki aniqlashtiruvchi savol "
+             "taklif qil. Muloyim va suhbatdosh bo'l:"]
     for h in hits:
         tag = "FAQ" if h.get("kind") == "faq" else "hujjat"
         lines.append(f"- [{tag}] {h['text']}")
