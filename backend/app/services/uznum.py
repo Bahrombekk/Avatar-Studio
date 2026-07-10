@@ -63,7 +63,7 @@ def _three(n: int) -> str:
     out = []
     h, r = divmod(n, 100)
     if h:
-        out.append("yuz" if h == 1 else f"{_ONES[h]} yuz")
+        out.append(f"{_ONES[h]} yuz")   # 100 → "bir yuz" (aniqroq talaffuz)
     t, o = divmod(r, 10)
     if t:
         out.append(_TENS[t])
@@ -149,10 +149,10 @@ def _range(m):
 
 
 def _decimal(m):
-    """'3,5' / '3.5' → 'uch nuqta besh' (kasr RAQAMMA-RAQAM — nol saqlanadi)."""
+    """'3,5' / '3.5' → 'uch butun besh' (o'zbekcha kasr: X butun Y; nol saqlanadi)."""
     whole, frac = m.group(1), m.group(2)
     fw = " ".join("nol" if d == "0" else _ONES[int(d)] for d in frac)
-    return f"{num_to_uz(int(whole))} nuqta {fw}"
+    return f"{num_to_uz(int(whole))} butun {fw}"
 
 
 def _num(m):
