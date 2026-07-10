@@ -24,7 +24,9 @@ _SYMBOLS = {"№": " raqam ", "&": " va "}
 # Nuqtali qisqartmalar (manzil/unvon) → to'liq so'z. Registrsiz, nuqta bilan.
 _ABBR_DOT = {"ko'ch.": "ko'chasi", "koʻch.": "ko'chasi", "prof.": "professor",
              "dots.": "dotsent", "vil.": "viloyat", "tum.": "tuman",
-             "sh.": "shahar", "mkr.": "mikrorayon", "d.": "dona"}
+             "sh.": "shahar", "mkr.": "mikrorayon", "d.": "dona",
+             "h.k.": "hokazo", "sh.k.": "shu kabilar", "v.b.": "va boshqalar",
+             "mln.": "million", "mlrd.": "milliard", "trln.": "trillion"}
 
 # Ma'lum qisqartmalar → o'zbekcha talaffuz (Yandex "IT" ni "it" deb o'qib qo'yardi).
 # Faqat SHU RO'YXATDAGILAR o'zgaradi (UTY/DAS kabi brend nomlariga tegmaydi).
@@ -32,7 +34,11 @@ _ABBR_DOT = {"ko'ch.": "ko'chasi", "koʻch.": "ko'chasi", "prof.": "professor",
 # talaffuz — Yandex qisqartmani buzmaydi). Qolganlari harflab o'qiladi.
 _ABBR = {"IT": "axborot texnologiyalari", "AI": "sun'iy intellekt",
          "IP": "ay-pi", "GPS": "ji-pi-es", "SMS": "es-em-es", "USB": "yu-es-bi",
-         "PDF": "pi-di-ef", "HR": "eych-ar", "VIP": "vi-ay-pi", "SMM": "es-em-em"}
+         "PDF": "pi-di-ef", "HR": "eych-ar", "VIP": "vi-ay-pi", "SMM": "es-em-em",
+         "UZS": "so'm", "AQSh": "Amerika Qo'shma Shtatlari",
+         "BMT": "Birlashgan Millatlar Tashkiloti",
+         "MDH": "Mustaqil Davlatlar Hamdo'stligi",
+         "O'zR": "O'zbekiston Respublikasi"}
 
 # Yandex o'zbek ovozi ba'zi so'zlarni buzib o'qiydi — TTS uchun to'g'ri talaffuzga
 # yoziladi (ekranda ASL so'z qoladi). Registrsiz, to'liq so'z sifatida.
@@ -167,8 +173,9 @@ def normalize_uz_tts(text: str) -> str:
         return text
     # 0) Apostrof/okina variantlarini yagona ' ga (so'z buzilib talaffuz qilinmasin).
     text = _canon_apostrophe(text)
-    # 1) Klass/poyezd kodi: raqam + bitta harf (1С, 2В, 768Ф) — RAQAMLARDAN OLDIN.
-    text = re.sub(r"\b(\d{1,4})([A-Za-zА-Яа-яЁё])\b", _seat, text)
+    # 1) Klass/poyezd kodi: raqam + bitta KIRIL harf (1С, 2В, 768Ф) — RAQAMLARDAN OLDIN.
+    #    Faqat kiril (haqiqiy vagon kodlari kiril): lotin "3D/4K/5G/1080p" buzilmaydi.
+    text = re.sub(r"\b(\d{1,4})([А-Яа-яЁё])\b", _seat, text)
     # 2) Sana: dd.mm.yyyy / dd.mm / yyyy-mm-dd → "kun-oy".
     text = re.sub(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b", _date, text)
     text = re.sub(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", _date_iso, text)
@@ -184,12 +191,23 @@ def normalize_uz_tts(text: str) -> str:
     text = re.sub(r"\b(\d{1,3})-([A-Za-z][A-Za-z']{1,})\b", _ord_word, text)
     # 2e) Oraliq: "N-N" (10-15) → "...dan ...gacha".
     text = re.sub(r"\b(\d{1,4})-(\d{1,4})\b", _range, text)
+    # 2f) Manfiy son: "-5" → "minus besh" (oraliq/tartib allaqachon yeyilgan; harf/
+    #     raqam/nuqtadan keyingi "-" tegilmaydi, faqat sof manfiy).
+    text = re.sub(r"(?<![\w.])-(?=\d)", "minus ", text)
     # 3) Vaqt: HH:MM → "soat ..." (oldindagi ortiqcha "soat" ni yutadi — "soat soat" bo'lmasin).
     text = re.sub(r"\b(?:soat\s+)?([01]?\d|2[0-3]):([0-5]\d)\b", _time, text)
+    # 3a) Qolgan "son:son" (hisob 2:1, yaroqsiz vaqt 24:00) → ":" o'rniga bo'shliq
+    #     (aks holda ":" TTS'da o'qilmasdan qolardi: "ikki:bir").
+    text = re.sub(r"(?<=\d):(?=\d)", " ", text)
     # 3b) Vergul-ajratkichli mingliklar (4,000 / 1,234,567) → vergulni olib tashlaymiz
     #     ("4,000" -> "4000" -> keyin "to'rt ming"). Faqat vergul + AYNAN 3 raqam guruhi
     #     (o'nlik kasr "3,5" tegilmaydi — undan keyin 3 raqam kelmaydi).
     text = re.sub(r"\d{1,3}(?:,\d{3})+", lambda m: m.group(0).replace(",", ""), text)
+    # 3b') Bo'shliq-ajratkichli mingliklar (12 500 / 311 000) → yaxlit son. KASRdan
+    #      OLDIN bo'lishi shart — aks holda "12 500,50" da kasr "500,50" ni olib, "12"
+    #      ajralib qolardi ("o'n ikki ... besh yuz butun ...").
+    text = re.sub(r"\d{1,3}(?:[    ]\d{3})+",
+                  lambda m: re.sub(r"[    ]", "", m.group(0)), text)
     # 3c) Foiz: "50%" → "50 foiz" (son keyin so'zga aylanadi).
     text = re.sub(r"(?<=\d)\s*%", " foiz", text)
     # 3d) Belgilar: № → "raqam", & → "va".
@@ -202,8 +220,10 @@ def normalize_uz_tts(text: str) -> str:
                   lambda m: " " + _UNITS[m.group(1).lower()], text, flags=re.IGNORECASE)
     text = re.sub(r"(?<=\d)\s+([mglt])\b",
                   lambda m: " " + _UNITS1[m.group(1).lower()], text, flags=re.IGNORECASE)
-    # 3f) O'nlik kasr: "3,5" / "3.5" → "uch nuqta besh" (mingliklar/sana allaqachon yeyilgan).
-    text = re.sub(r"\b(\d+)[,.](\d+)\b", _decimal, text)
+    # 3f) O'nlik kasr: "3,5" / "3.5" → "uch butun besh" (mingliklar/sana allaqachon yeyilgan).
+    #     Old/ket nuqta-raqam bo'lsa TEGILMAYDI — yaroqsiz sana "00.06.2026" da "00.06"
+    #     ni kasr deb olmasin (aks holda ".2026" nuqtali qolib buzilardi).
+    text = re.sub(r"(?<![\d.])(\d+)[,.](\d+)(?!\.?\d)", _decimal, text)
     # 3g) Nuqtali qisqartmalar (ko'ch.→ko'chasi). Uzun avval; registrsiz.
     for _ab in sorted(_ABBR_DOT, key=len, reverse=True):
         text = re.sub(re.escape(_ab), _ABBR_DOT[_ab], text, flags=re.IGNORECASE)
@@ -214,8 +234,12 @@ def normalize_uz_tts(text: str) -> str:
     # 3e) So'z talaffuzini tuzatish (virtual→virtuual). Registrsiz, to'liq so'z.
     text = re.sub(r"\b(" + "|".join(_PRON) + r")\b",
                   lambda m: _PRON[m.group(0).lower()], text, flags=re.IGNORECASE)
+    # 3h) Raqamga yopishgan lotin harfini ajratamiz (5G, 3D, 1080p) — son so'zga
+    #     aylanganda "beshG" bo'lib yopishib qolmasin (birliklar allaqachon yeyilgan).
+    text = re.sub(r"(?<=\d)(?=[A-Za-z])", " ", text)
     # 4) Narx/son: bo'shliqli guruh (300 560) yoki oddiy son → so'z.
     text = re.sub(r"\d{1,3}(?:[  ]\d{3})+|\d+", _num, text)
-    # 5) Belgi almashtirishlardan qolgan ortiqcha bo'shliqni yig'amiz.
-    text = re.sub(r"  +", " ", text)
+    # 5) Belgi almashtirishlardan qolgan ortiqcha bo'shliqni yig'amiz + chetlarni tozalash
+    #     (№ → " raqam " kabi bosh/oxir bo'shliq qolmasin).
+    text = re.sub(r"  +", " ", text).strip()
     return text
