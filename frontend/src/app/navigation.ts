@@ -20,6 +20,8 @@ export function screenToPath(route: Route): string {
       return "/admin/studio";
     case "canned":
       return "/admin/canned";
+    case "knowledge":
+      return "/admin/knowledge";
     case "conversations":
       return "/admin/conversations";
     case "users":

@@ -53,6 +53,27 @@ export interface KnowledgeFaq {
   added: string;
 }
 
+/** Manba to'liq (meta + xom matn) — ko'rish/tahrirlash uchun. */
+export interface KnowledgeSourceFull extends KnowledgeSource {
+  text: string;
+}
+
+/** GPT taklif qilgan FAQ nomzodi (hali saqlanmagan). */
+export interface FaqCandidate {
+  q: string;
+  a: string;
+}
+
+/** RU/EN tarjima fon-jobi holati. */
+export interface TranslateStatus {
+  state: "idle" | "running" | "done" | "error";
+  done?: number;
+  total?: number;
+  langs?: string[];
+  stage?: string;
+  error?: string;
+}
+
 /** Suhbat (ro'yxat satri). */
 export interface Conversation {
   id: number;
@@ -399,6 +420,94 @@ export const API = {
       { method: "DELETE", headers: authHeaders() },
     );
     if (!r.ok) throw new Error("o'chirilmadi");
+  },
+
+  async knowledgeGetSource(id: string, srcId: string): Promise<KnowledgeSourceFull> {
+    const r = await fetch(
+      `${P}/api/avatars/${encodeURIComponent(id)}/knowledge/source/${encodeURIComponent(srcId)}`,
+      { headers: authHeaders() },
+    );
+    if (!r.ok) throw new Error(await errorDetail(r, "manba yuklanmadi"));
+    return (await r.json()) as KnowledgeSourceFull;
+  },
+
+  async knowledgeUpdateSource(
+    id: string,
+    srcId: string,
+    text: string,
+    name?: string,
+  ): Promise<{ ok: boolean; id: string; n_chunks: number }> {
+    const r = await fetch(
+      `${P}/api/avatars/${encodeURIComponent(id)}/knowledge/source/${encodeURIComponent(srcId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ text, name }),
+      },
+    );
+    if (!r.ok) throw new Error(await errorDetail(r, "manba saqlanmadi"));
+    return (await r.json()) as { ok: boolean; id: string; n_chunks: number };
+  },
+
+  async knowledgeUpdateFaq(
+    id: string,
+    faqId: string,
+    question: string,
+    answer: string,
+  ): Promise<{ ok: boolean }> {
+    const r = await fetch(
+      `${P}/api/avatars/${encodeURIComponent(id)}/knowledge/faq/${encodeURIComponent(faqId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ question, answer }),
+      },
+    );
+    if (!r.ok) throw new Error(await errorDetail(r, "FAQ saqlanmadi"));
+    return (await r.json()) as { ok: boolean };
+  },
+
+  // ── GPT amallari (avto-FAQ + tarjima) ──
+  async knowledgeSuggestFaqs(id: string, srcId: string, n = 8): Promise<FaqCandidate[]> {
+    const r = await fetch(
+      `${P}/api/avatars/${encodeURIComponent(id)}/knowledge/source/${encodeURIComponent(srcId)}/suggest-faqs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ n }),
+      },
+    );
+    if (!r.ok) throw new Error(await errorDetail(r, "FAQ taklifi olinmadi"));
+    return ((await r.json()) as { candidates: FaqCandidate[] }).candidates || [];
+  },
+
+  async knowledgeAddFaqBulk(id: string, faqs: FaqCandidate[]): Promise<{ ok: boolean; added: number }> {
+    const r = await fetch(`${P}/api/avatars/${encodeURIComponent(id)}/knowledge/faq/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ faqs: faqs.map((f) => ({ question: f.q, answer: f.a })) }),
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "FAQ qo'shilmadi"));
+    return (await r.json()) as { ok: boolean; added: number };
+  },
+
+  async knowledgeTranslate(id: string, langs: string[]): Promise<TranslateStatus> {
+    const r = await fetch(`${P}/api/avatars/${encodeURIComponent(id)}/knowledge/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ langs }),
+    });
+    if (!r.ok) throw new Error(await errorDetail(r, "tarjima boshlanmadi"));
+    return (await r.json()) as TranslateStatus;
+  },
+
+  async knowledgeTranslateStatus(id: string): Promise<TranslateStatus> {
+    const r = await fetch(
+      `${P}/api/avatars/${encodeURIComponent(id)}/knowledge/translate/status`,
+      { headers: authHeaders() },
+    );
+    if (!r.ok) throw new Error("holat olinmadi");
+    return (await r.json()) as TranslateStatus;
   },
 
   // ── Suhbatlar (saqlangan transkriptlar) ──
