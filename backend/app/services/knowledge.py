@@ -368,7 +368,7 @@ def _matrix(avatar_id: str):
     return mat, chunks, lex
 
 
-def retrieve(avatar_id: str, query: str, k: int = 6, min_score: float = 0.28) -> list:
+def retrieve(avatar_id: str, query: str, k: int = 10, min_score: float = 0.28) -> list:
     """GIBRID retrieval: dense (embedding cosine) + lexical (BM25), RRF bilan birlashtirilgan.
     Dense — ma'no o'xshashligi; BM25 — aniq atamalar (ism, raqam, bekat nomi, kod) —
     O'zbekda ikkalasi birga recall'ni sezilarli oshiradi. Xatoda/bo'shda []."""
