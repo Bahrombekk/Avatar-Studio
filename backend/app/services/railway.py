@@ -269,12 +269,20 @@ _KEYWORDS = (
     "poyezd", "poezd", "поезд", "train", "chipta", "bilet", "билет", "ticket",
     "afrosiyob", "afrosiyo", "shark", "sharq", "narx", "narxi", "qancha", "цена",
     "jadval", "qatna", "reys", "vagon", "joy", "o'rin", "o‘rin",
+    # "bilet" STT buzilishlari (haqiqiy so'z emas → xavfsiz) + "topib ber" niyati
+    "blet", "blets", "bilat", "bilyet", "belet", "topib ber", "topib ol",
 )
+# Yo'nalish naqshi: "<shahar>dan <shahar>ga/gacha" — "bilet" so'zi STT'да buzilса ham
+# (blets/birlik) yo'l-savolini ushlaydi. _extract_params baribir shahar topmasa "" qaytadi
+# (yolg'on ishga tushirish zararsiz — faqat bitta GPT-extract chaqiruvi).
+_ROUTE_RE = re.compile(r"\b\w{3,}dan\s+\w{3,}ga(cha)?\b")
 
 
 def looks_like_train_query(text: str) -> bool:
     t = (text or "").lower()
-    return any(k in t for k in _KEYWORDS)
+    if any(k in t for k in _KEYWORDS):
+        return True
+    return bool(_ROUTE_RE.search(t))
 
 
 def _extract_params(user_text: str, language: str):
