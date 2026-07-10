@@ -423,10 +423,14 @@ def build_context_block(hits: list) -> str:
     """Topilgan bo'laklardan system-prompt qo'shimchasini quradi ('' agar bo'sh)."""
     if not hits:
         return ""
-    lines = ["MA'LUMOT BAZASI (javobni shu ma'lumotga asosla, ma'lumot to'qima; "
-             "agar to'liq mos kelmasa — \"bilmayman\" deb to'xtama, balki yumshoq "
-             "tan olib aniqlashtiruvchi savol ber yoki yordam taklif qil, suhbatni "
-             "davom ettir):"]
+    lines = ["MA'LUMOT BAZASI. Javobni FAQAT quyida keltirilgan ma'lumotga "
+             "asosla. QAT'IY QOIDA: quyida aniq yozilmagan biror raqam, narx, "
+             "summa, foiz, sana yoki telefon raqamini javobingda KELTIRMA hamda "
+             "o'zingdan to'qima yoki taxmin qilma. Agar so'ralgan aniq ma'lumot "
+             "(masalan chipta narxi) quyida bo'lmasa, uni bilmasligingni ochiq "
+             "ayt va rasmiy veb-sayt (masalan eticket.railway.uz) yoki "
+             "aniqlashtiruvchi savolni taklif qil. Umumiy tushuntirishlarda "
+             "muloyim va suhbatdosh bo'l, ammo faktlarni hech qachon to'qima:"]
     for h in hits:
         tag = "FAQ" if h.get("kind") == "faq" else "hujjat"
         lines.append(f"- [{tag}] {h['text']}")
