@@ -181,6 +181,10 @@ async def realtime_ws(ws: WebSocket):
                     if not user_text:
                         await send({"type": "error", "message": "Nutq aniqlanmadi — qaytadan gapiring"})
                         continue
+                    # STT domen-tuzatish: Yandex buzib eshitgan nomlarni to'g'rilash
+                    # (mas. "keskin temir yo'llari" → "O'zbekiston temir yo'llari").
+                    from app.realtime.stt_correct import correct_transcript
+                    user_text = correct_transcript(user_text, language)
                     stop_active_reply()                 # ehtiyot: oldingi javob qolgan bo'lsa
                     turn += 1
                     cancel_event = threading.Event()
