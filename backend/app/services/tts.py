@@ -31,8 +31,10 @@ VOICES = {
                # O'chirish/o'zgartirish: env YULDUZ_ROLE (bo'sh = role yubormaydi).
                "role": os.environ.get("YULDUZ_ROLE", "friendly").strip() or None},
     "zamira": {"provider": "yandex_v3", "voice": "zamira", "lang": "uz-UZ",
-               "label": "Zamira (Yandex)", "speed": 1.0, "smooth_af": _YX_SMOOTH,
+               "label": "Zamira (Yandex)", "speed": 1.15, "pitch": 132,
+               "smooth_af": _YX_SMOOTH,
                # Zamira rollari: neutral|friendly|strict (whisper YO'Q).
+               # speed 1.15 + pitchShift 132 — foydalanuvchi playgroundda sozlaган ohang.
                "role": os.environ.get("ZAMIRA_ROLE", "neutral").strip() or None},
     # Aisha (back.aisha.group) — mahalliy o'zbek ovozi. Mood: Neutral|Cheerful|Happy|Sad.
     "gulnoza": {"provider": "aisha", "voice": "Gulnoza", "lang": "uz-UZ",
@@ -453,7 +455,9 @@ def tts(text: str, wav_path: str, voice: str = DEFAULT_VOICE, speed: float = 1.0
     elif auto_emotion:
         _r, _p = detect_emotion(text, voice)
         if _r is not None:
-            eff_role, eff_pitch = _r, _p
+            # Emotsiya pitch'ini spec BASE pitch'iga QO'SHAMIZ (almashtirmaymiz) —
+            # aks holda Zamira'ning base pitchShift=132 auto rejimда yo'qolardi.
+            eff_role, eff_pitch = _r, spec.get("pitch", 0.0) + _p
     # O'zbek ovozlari uchun: raqam/sana/vaqt/klass kodlarini SO'Zga o'giramiz
     # (TTS to'g'ri talaffuz qilsin). Ekranda ko'rsatilgan matn O'ZGARMAYDI — bu faqat
     # TTS'ga kiruvchi nusxa. Rus/ingliz/qozoq ovozlarida o'tkazib yuboramiz.
