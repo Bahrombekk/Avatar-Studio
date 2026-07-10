@@ -241,8 +241,12 @@ def normalize_uz_tts(text: str) -> str:
     #     ni kasr deb olmasin (aks holda ".2026" nuqtali qolib buzilardi).
     text = re.sub(r"(?<![\d.])(\d+)[,.](\d+)(?!\.?\d)", _decimal, text)
     # 3g) Nuqtali qisqartmalar (ko'ch.→ko'chasi). Uzun avval; registrsiz.
+    #     CHAP CHEGARA SHART: qisqartma alohida token bo'lsin — aks holda so'z ICHIDA
+    #     yeb qo'yardi ("berish." → "sh." ushlanib "berishahar"!). (?<![\w']) → oldida
+    #     harf/raqam/apostrof bo'lmasin (faqat bo'shliq/tinish belgi/matn boshi).
     for _ab in sorted(_ABBR_DOT, key=len, reverse=True):
-        text = re.sub(re.escape(_ab), _ABBR_DOT[_ab], text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![\w'])" + re.escape(_ab), _ABBR_DOT[_ab], text,
+                      flags=re.IGNORECASE)
     # 3d) Ma'lum qisqartmalar → talaffuz (IT→"ay-ti"). Faqat _ABBR ro'yxatidagilar,
     #     to'liq so'z sifatida (registrga sezgir — kichik "it" so'ziga tegmaydi).
     text = re.sub(r"\b(" + "|".join(_ABBR) + r")\b",
@@ -254,6 +258,10 @@ def normalize_uz_tts(text: str) -> str:
     #      "ta'lim-tarbiya"→"ta'lim tarbiya"). Raqamli tirelar (oraliq/tartib/telefon)
     #      allaqachon yeyilgan — bu faqat harf-harf tirega tegadi, TTS tabiiy o'qiydi.
     text = re.sub(r"(?<=[a-zA-Zа-яёА-ЯЁ'])-(?=[a-zA-Zа-яёА-ЯЁ])", " ", text)
+    # 3e3) Uzun tire (— / –) → bo'shliq (TTS "tire" deb o'qimasin / g'alati pauza
+    #      bo'lmasin). "vazifam — sizga" → "vazifam sizga". ASCII "-" ga tegmaydi
+    #      (oraliq/kod uchun kerak).
+    text = re.sub(r"\s*[—–]\s*", " ", text)
     # 3h) Raqamga yopishgan lotin harfini ajratamiz (5G, 3D, 1080p) — son so'zga
     #     aylanganda "beshG" bo'lib yopishib qolmasin (birliklar allaqachon yeyilgan).
     text = re.sub(r"(?<=\d)(?=[A-Za-z])", " ", text)
