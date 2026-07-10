@@ -125,8 +125,9 @@ def _day_month(m):
 
 
 def _year(m):
-    """'2026-yil' → 'ikki ming yigirma oltinchi yil' (yil tartib son)."""
-    return f"{_ordinal(num_to_uz(int(m.group(1))))} yil"
+    """'2026-yil(da/dan/gacha/i/ning...)' → tartib son + 'yil' + qo'shimcha.
+    '1994-yilda' → 'bir ming to'qqiz yuz to'qson to'rtinchi yilda'."""
+    return f"{_ordinal(num_to_uz(int(m.group(1))))} yil{m.group(2)}"
 
 
 def _time(m):
@@ -176,7 +177,8 @@ def normalize_uz_tts(text: str) -> str:
     # 2b) "N-oy" → tartib son + oy ("1-iyul" → "birinchi iyul").
     text = re.sub(rf"\b(\d{{1,2}})-({_MONTH_NAMES})\b", _day_month, text)
     # 2c) "N-yil" → tartib son + yil ("2026-yil" → "... oltinchi yil").
-    text = re.sub(r"\b(\d{3,4})-yil\b", _year, text)
+    # "N-yil" + kelishik qo'shimchasi (yil/yilda/yildan/yilgacha/yili/yilning...).
+    text = re.sub(r"\b(\d{3,4})-yil(\w*)\b", _year, text)
     # 2d) Umumiy tartib son: "N-so'z" (5-uy, 2-qavat). Harflar KELISHI shart →
     #     "10-15" (raqam-raqam) tegilmaydi, u keyingi qoidada oraliq bo'ladi.
     text = re.sub(r"\b(\d{1,3})-([A-Za-z][A-Za-z']{1,})\b", _ord_word, text)
