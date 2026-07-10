@@ -189,18 +189,41 @@ def shutdown() -> None:
 
 
 # ── Stansiya nomi → kod ──
+# Viloyat nomi → asosiy temir yo'l stansiyasi. Foydalanuvchi tabiiy ravishda VILOYAT
+# nomini aytadi ("Surxondaryoga bilet"), lekin stansiya boshqa nomда ("Termiz") →
+# resolve_station None qaytarib jonli qidiruv ishlamas edi ("har doim topib bermaydi").
+# Bu nomlar FAQAT viloyat (bir xil nomли shahar/stansiya yo'q) → almashtirish xavfsiz.
+_REGION_ALIAS = {
+    # Viloyat → asosiy stansiya
+    "surxondaryo": "Termiz", "qashqadaryo": "Qarshi",
+    "xorazm": "Urgench", "xorezm": "Urgench", "sirdaryo": "Guliston",
+    # Shahar imlo variantlari (eticket API o'zига xos yozadi: Urgench/Qoqon/Margilan)
+    "urganch": "Urgench", "qo'qon": "Qoqon", "qoʻqon": "Qoqon",
+    "marg'ilon": "Margilan", "margʻilon": "Margilan",
+}
+
+
 def resolve_station(name: str):
     """Shahar/stansiya nomidan kod topadi (O'zbekiston stansiyalari afzal).
     Natija uzoq TTL bilan keshlanadi (stansiya kodi deyarli o'zgarmaydi)."""
     name = (name or "").strip()
     if not name:
         return None
+    # Viloyat nomi bo'lsa — asosiy stansiyaga almashtiramiz (Surxondaryo→Termiz).
+    name = _REGION_ALIAS.get(name.lower(), name)
     key = name.lower()[:24]
     cached = _cache_get(_station_cache, key, _STATION_TTL)
     if cached is not None:
         return cached
     data = _call("resolve", name[:24])
     stations = ((data or {}).get("data") or {}).get("stations") or []
+    if not stations:
+        # Apostrofni tushirib qayta urinish — eticket resolver "o'"/"g'" li nomlarni
+        # ko'pincha topmaydi (Qo'qon→yo'q, Qoqon→ha). Alias'da bo'lmagan nomlar uchun.
+        stripped = re.sub(r"[’'`ʻʼ]", "", name)
+        if stripped != name:
+            data = _call("resolve", stripped[:24])
+            stations = ((data or {}).get("data") or {}).get("stations") or []
     if not stations:
         return None                     # topilmadi/xato — keshlamaymiz (qayta urinish)
     # O'zbekiston kodlari "29" bilan boshlanadi — ularni afzal ko'ramiz.
