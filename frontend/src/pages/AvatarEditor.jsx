@@ -327,67 +327,57 @@ function TabVoice({ draft, set }) {
   const curSpec = VOICES.find((v) => v.id === curVoice) || {};
   const moods = MOODS_BY_VOICE[curVoice] || MOODS_BY_PROVIDER[curSpec.provider] || null;   // null = uslub yo'q
   const spd = Number(draft.voiceSpeed) || 1.0;
+  const langNative = (LANGUAGES.find((l) => l.code === draft.language) || {}).native || "";
 
   return (
     <Section title="Ovoz sozlamalari" desc="Ovoz, til, uslub va tezlik — jonli suhbatda shu sozlamalar bilan gapiradi. Har til uchun ovoz alohida saqlanadi.">
-      {/* Mockup uslubidagi ixcham qator: OVOZ · TIL · USLUB · TEZLIK */}
-      <div className="ed-vrow">
-        <div className="ed-vctl">
-          <label>Ovoz</label>
-          <div className="ed-vpill">
-            <I.mic size={15} />
-            <select value={curVoice} onChange={(e) => pickVoice(e.target.value)}>
-              {langVoiceList.map((v) => (
-                <option key={v.id} value={v.id}>{v.name} · {v.tag}</option>
-              ))}
-            </select>
-            <button className={"ed-vplay" + (playing === curVoice ? " on" : "")}
-              onClick={(e) => preview(e, curVoice)} title="Eshitish" type="button">
-              {playing === curVoice ? <I.pause size={12} /> : <I.play size={12} />}
+      {/* TIL — ko'rinadigan tugmalar */}
+      <Field label="Til" hint="Tilni tanlang — o'sha til uchun ovoz alohida saqlanadi.">
+        <div className="ed-lang">
+          {LANGUAGES.map((l) => (
+            <button key={l.code} className={"ed-lang-btn" + (draft.language === l.code ? " on" : "")}
+              onClick={() => pickLang(l.code)}>
+              <span className="ed-lang-flag">{l.flag}</span><span>{l.native}</span>
+              {langVoices[l.code] && <span className="ed-lang-vdot" title="Ovoz tanlangan">●</span>}
             </button>
-          </div>
+          ))}
         </div>
+      </Field>
 
-        <div className="ed-vctl">
-          <label>Til</label>
-          <div className="ed-vpill">
-            <I.globe size={15} />
-            <select value={draft.language} onChange={(e) => pickLang(e.target.value)}>
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>{l.native}</option>
-              ))}
-            </select>
-          </div>
+      {/* OVOZ — barcha ovozlar KO'RINADIGAN kartalar (dropdown emas) */}
+      <Field label={`Ovoz · ${langNative}`} hint="Kartani bosib tanlang, ▶ bilan eshiting.">
+        <div className="ed-voices">
+          {langVoiceList.map((v) => (
+            <button key={v.id} className={"ed-voice" + (curVoice === v.id ? " on" : "")}
+              onClick={() => pickVoice(v.id)}>
+              <div className="ed-voice-av"
+                style={{ background: v.gender === "Erkak" ? "var(--navy)" : "var(--brass)" }}>{v.name[0]}</div>
+              <div className="ed-voice-meta">
+                <div className="ed-voice-name">{v.name}</div>
+                <div className="ed-voice-sub">{v.gender} · {v.tag}</div>
+              </div>
+              <div className={"ed-voice-play" + (playing === v.id ? " on" : "")}
+                onClick={(e) => preview(e, v.id)} title="Eshitish">
+                {playing === v.id ? <I.pause size={12} /> : <I.play size={12} />}
+              </div>
+            </button>
+          ))}
         </div>
+      </Field>
 
-        <div className="ed-vctl">
-          <label>Uslub</label>
-          <div className={"ed-vpill" + (moods ? "" : " off")}>
-            <I.spark size={15} />
-            <select value={draft.voiceMood || ""} disabled={!moods}
-              onChange={(e) => set({ voiceMood: e.target.value })}>
-              {moods
-                ? moods.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)
-                : <option value="">—</option>}
-            </select>
-          </div>
-        </div>
-
-        <div className="ed-vctl">
-          <label>Tezlik</label>
-          <div className="ed-vpill">
-            <I.bolt size={15} />
-            <select value={spd} onChange={(e) => set({ voiceSpeed: Number(e.target.value) })}>
-              {SPEEDS.map((s) => (
-                <option key={s} value={s}>{s.toFixed(2).replace(/0$/, "")}x</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-      {moods === null && (
-        <div className="ed-vhint">Bu ovoz uslub (mood) qo‘llamaydi — Aisha yoki Yulduz ovozini tanlang.</div>
-      )}
+      {/* USLUB + TEZLIK — ko'rinadigan segmented tugmalar */}
+      <Row2>
+        <Field label="Uslub" hint="Ovoz ohangi. Avto — jumla mazmuniga qarab o'zgaradi.">
+          {moods
+            ? <Segmented value={draft.voiceMood || ""} onChange={(v) => set({ voiceMood: v })}
+                options={moods.map((m) => ({ value: m.v, label: m.label }))} />
+            : <div className="ed-vhint">Bu ovoz uslub (mood) qo‘llamaydi.</div>}
+        </Field>
+        <Field label={`Tezlik · ${spd}x`} hint="Gapirish tezligi.">
+          <Segmented value={spd} onChange={(v) => set({ voiceSpeed: Number(v) })}
+            options={SPEEDS.map((s) => ({ value: s, label: `${s}x` }))} />
+        </Field>
+      </Row2>
     </Section>
   );
 }

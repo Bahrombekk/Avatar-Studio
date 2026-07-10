@@ -95,6 +95,8 @@
 .ed-tab:hover{ color:var(--ink); }
 .ed-tab.on{ color:var(--brass); border-bottom-color:var(--brass); }
 .ed-form{ max-width:640px; }
+/* Ovoz tabi — sozlamalar keng joyга yoyilsin (tor 640 emas). */
+.ed-form--wide{ max-width:1080px; }
 .ed-section-head{ margin-bottom:20px; }
 .ed-section-title{ font-family:var(--font-display); font-size:22px; color:var(--ink); letter-spacing:-.3px; }
 .ed-section-desc{ font-size:13.5px; color:var(--ink-2); margin-top:5px; line-height:1.5; }
@@ -339,24 +341,30 @@
 .ed-voice.on .ed-voice-play{ background:var(--brass); color:var(--on-navy); border-color:var(--brass); }
 
 /* ── Ovoz sozlamalari qatori (OVOZ · TIL · USLUB · TEZLIK) — ixcham pill'lar ── */
-.ed-vrow{ display:flex; gap:11px; flex-wrap:wrap; }
-.ed-vctl{ display:flex; flex-direction:column; gap:7px; flex:1; min-width:128px; }
-.ed-vctl > label{ font-family:var(--font-mono); font-size:10px; letter-spacing:1.2px;
-  text-transform:uppercase; color:var(--ink-3); padding-left:2px; }
-.ed-vpill{ display:flex; align-items:center; gap:9px; padding:11px 13px; border-radius:12px;
-  border:1px solid var(--line); background:var(--card); transition:.13s; }
-.ed-vpill:focus-within{ border-color:var(--brass); }
-.ed-vpill > svg{ color:var(--ink-3); flex:none; }
-.ed-vpill.off{ opacity:.55; }
-.ed-vpill select{ appearance:none; -webkit-appearance:none; border:0; background:transparent;
-  font-family:var(--font-body); font-size:13.5px; color:var(--ink); cursor:pointer; outline:none;
+/* 2×2 katta kartalar — har biri: yorliq (ikon+nom) + katta boshqaruv. */
+.ed-vgrid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:780px; }
+.ed-vcard{ display:flex; flex-direction:column; gap:14px; padding:22px 24px; border-radius:18px;
+  border:1px solid var(--line); background:var(--card); box-shadow:0 1px 3px rgba(20,28,40,.05);
+  transition:.14s; min-width:0; }
+.ed-vcard:hover{ border-color:var(--brass); box-shadow:0 10px 26px -12px rgba(20,28,40,.22); }
+.ed-vcard:focus-within{ border-color:var(--brass); box-shadow:0 0 0 3px color-mix(in srgb, var(--brass) 14%, transparent); }
+.ed-vcard.off{ opacity:.6; }
+.ed-vcard-head{ display:flex; align-items:center; gap:10px; }
+.ed-vcard-head svg{ color:var(--brass); flex:none; }
+.ed-vcard.off .ed-vcard-head svg{ color:var(--ink-3); }
+.ed-vcard-head span{ font-family:var(--font-mono); font-size:11px; letter-spacing:1.4px;
+  text-transform:uppercase; color:var(--ink-3); }
+.ed-vcard-ctl{ display:flex; align-items:center; gap:12px; padding-top:14px;
+  border-top:1px solid var(--line); }
+.ed-vcard-ctl select{ appearance:none; -webkit-appearance:none; border:0; background:transparent;
+  font-family:var(--font-display); font-size:19px; color:var(--ink); cursor:pointer; outline:none;
   flex:1; min-width:0; padding:0; text-overflow:ellipsis; }
-.ed-vpill{ min-width:0; }
-.ed-vpill select:disabled{ cursor:not-allowed; }
-.ed-vplay{ width:24px; height:24px; border-radius:50%; border:1px solid var(--line); display:flex;
+.ed-vcard-ctl select:disabled{ cursor:not-allowed; }
+.ed-vcard-chev{ font-size:12px; color:var(--ink-3); flex:none; }
+.ed-vplay{ width:34px; height:34px; border-radius:50%; border:1px solid var(--line); display:flex;
   align-items:center; justify-content:center; color:var(--ink-2); flex:none; cursor:pointer; background:transparent; }
 .ed-vplay:hover, .ed-vplay.on{ background:var(--brass); color:var(--on-navy); border-color:var(--brass); }
-.ed-vhint{ margin-top:10px; font-size:12px; color:var(--ink-3); }
+.ed-vhint{ margin-top:16px; font-size:13px; color:var(--ink-3); }
 
 .ed-note{ display:flex; gap:10px; padding:14px 16px; background:var(--panel); border:1px solid var(--line);
   border-radius:var(--radius); font-size:12.5px; color:var(--ink-2); line-height:1.5; }
