@@ -9,8 +9,22 @@ import re
 
 _ONES = ["", "bir", "ikki", "uch", "to'rt", "besh", "olti", "yetti", "sakkiz", "to'qqiz"]
 _TENS = ["", "o'n", "yigirma", "o'ttiz", "qirq", "ellik", "oltmish", "yetmish", "sakson", "to'qson"]
-_UNITS = {"km/soat": "kilometr soatiga", "km": "kilometr", "kg": "kilogramm",
-          "sm": "santimetr", "mm": "millimetr", "ml": "millilitr", "kv.m": "kvadrat metr"}
+# Ko'p harfli / belgili birliklar (SONdan keyin → to'liq so'z). Bir harfli m/g/l/t
+# alohida (_UNITS1) — faqat BO'SHLIQ bilan (tasodifiy so'zga tegmasin).
+_UNITS = {"km/soat": "kilometr soatiga", "km/h": "kilometr soatiga",
+          "km": "kilometr", "kg": "kilogramm", "sm": "santimetr", "mm": "millimetr",
+          "ml": "millilitr", "kv.m": "kvadrat metr", "m2": "kvadrat metr",
+          "m²": "kvadrat metr", "m3": "kub metr", "m³": "kub metr",
+          "gb": "gigabayt", "mb": "megabayt", "tb": "terabayt",
+          "°c": "daraja", "°": "daraja"}
+# Bir harfli birliklar — faqat "SON␠birlik" (bo'shliq shart): "5 m" → "besh metr".
+_UNITS1 = {"m": "metr", "g": "gramm", "l": "litr", "t": "tonna"}
+# Belgilar → so'z (raqamlardan oldin bajariladi).
+_SYMBOLS = {"№": " raqam ", "&": " va "}
+# Nuqtali qisqartmalar (manzil/unvon) → to'liq so'z. Registrsiz, nuqta bilan.
+_ABBR_DOT = {"ko'ch.": "ko'chasi", "koʻch.": "ko'chasi", "prof.": "professor",
+             "dots.": "dotsent", "vil.": "viloyat", "tum.": "tuman",
+             "sh.": "shahar", "mkr.": "mikrorayon", "d.": "dona"}
 
 # Ma'lum qisqartmalar → o'zbekcha talaffuz (Yandex "IT" ni "it" deb o'qib qo'yardi).
 # Faqat SHU RO'YXATDAGILAR o'zgaradi (UTY/DAS kabi brend nomlariga tegmaydi).
@@ -30,6 +44,18 @@ _LETTER = {"С": "si", "C": "si", "В": "ve", "B": "ve", "П": "pe", "P": "pe", 
            "Е": "ye", "E": "ye", "У": "u", "U": "u", "К": "ka", "K": "ka", "Д": "de",
            "D": "de", "М": "em", "M": "em", "Г": "ge", "Ф": "ef", "F": "ef", "Н": "en",
            "Т": "te", "T": "te", "А": "a", "A": "a", "Р": "er", "R": "er"}
+
+
+# Apostrof/okina variantlari → yagona ' (U+0027). SABAB: GPT matni o'/oʻ/o`/o‘/o’
+# turli belgilar bilan keladi; TTS ba'zilarini "oʻ" digrafi deb tanimay so'zni
+# buzib o'qiydi. Hammasini bitta shaklga keltiramiz (bizning so'z jadvallarimiz ' ishlatadi).
+_APOSTROPHES = "`´‘’ʹʻʼʽˈ′"
+_APOS_RE = re.compile("[" + _APOSTROPHES + "]")
+
+
+def _canon_apostrophe(text: str) -> str:
+    """Barcha apostrof/okina variantlarini oddiy ' (U+0027) ga keltiradi."""
+    return _APOS_RE.sub("'", text)
 
 
 def _three(n: int) -> str:
@@ -110,36 +136,75 @@ def _time(m):
     return f"soat {num_to_uz(h)} {num_to_uz(mi)} daqiqa"
 
 
+def _ord_word(m):
+    """'5-uy' → 'beshinchi uy', '2-qavat' → 'ikkinchi qavat' (umumiy tartib son)."""
+    return f"{_ordinal(num_to_uz(int(m.group(1))))} {m.group(2)}"
+
+
+def _range(m):
+    """'10-15' → 'o'ndan o'n beshgacha' (ablativ + gacha bevosita qo'shiladi)."""
+    a, b = int(m.group(1)), int(m.group(2))
+    return f"{num_to_uz(a)}dan {num_to_uz(b)}gacha"
+
+
+def _decimal(m):
+    """'3,5' / '3.5' → 'uch nuqta besh' (kasr RAQAMMA-RAQAM — nol saqlanadi)."""
+    whole, frac = m.group(1), m.group(2)
+    fw = " ".join("nol" if d == "0" else _ONES[int(d)] for d in frac)
+    return f"{num_to_uz(int(whole))} nuqta {fw}"
+
+
 def _num(m):
     s = m.group(0).replace(" ", "").replace(" ", "")
     return num_to_uz(int(s))
 
 
 def normalize_uz_tts(text: str) -> str:
-    """Matndagi raqam/sana/vaqt/klass kodlarini o'zbekcha so'zga o'giradi."""
+    """Matndagi raqam/sana/vaqt/valyuta/kasr/belgi/qisqartmalarni o'zbekcha so'zga
+    o'giradi. Tartib MUHIM — eng aniq naqshlar oldin (keyingi qoida yeb qo'ymasin)."""
     if not text:
         return text
+    # 0) Apostrof/okina variantlarini yagona ' ga (so'z buzilib talaffuz qilinmasin).
+    text = _canon_apostrophe(text)
     # 1) Klass/poyezd kodi: raqam + bitta harf (1С, 2В, 768Ф) — RAQAMLARDAN OLDIN.
     text = re.sub(r"\b(\d{1,4})([A-Za-zА-Яа-яЁё])\b", _seat, text)
     # 2) Sana: dd.mm.yyyy / dd.mm / yyyy-mm-dd → "kun-oy".
     text = re.sub(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b", _date, text)
     text = re.sub(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", _date_iso, text)
-    text = re.sub(r"\b(\d{1,2})\.(\d{1,2})\b(?!\d)", _date, text)
+    # Bare "dd.mm" — oy 2 RAQAMLI bo'lsagina sana ("10.06"); "4.5" esa kasr (keyin).
+    text = re.sub(r"\b(\d{1,2})\.(\d{2})\b(?!\d)", _date, text)
     # 2b) "N-oy" → tartib son + oy ("1-iyul" → "birinchi iyul").
     text = re.sub(rf"\b(\d{{1,2}})-({_MONTH_NAMES})\b", _day_month, text)
     # 2c) "N-yil" → tartib son + yil ("2026-yil" → "... oltinchi yil").
     text = re.sub(r"\b(\d{3,4})-yil\b", _year, text)
+    # 2d) Umumiy tartib son: "N-so'z" (5-uy, 2-qavat). Harflar KELISHI shart →
+    #     "10-15" (raqam-raqam) tegilmaydi, u keyingi qoidada oraliq bo'ladi.
+    text = re.sub(r"\b(\d{1,3})-([A-Za-z][A-Za-z']{1,})\b", _ord_word, text)
+    # 2e) Oraliq: "N-N" (10-15) → "...dan ...gacha".
+    text = re.sub(r"\b(\d{1,4})-(\d{1,4})\b", _range, text)
     # 3) Vaqt: HH:MM → "soat ..." (oldindagi ortiqcha "soat" ni yutadi — "soat soat" bo'lmasin).
     text = re.sub(r"\b(?:soat\s+)?([01]?\d|2[0-3]):([0-5]\d)\b", _time, text)
     # 3b) Vergul-ajratkichli mingliklar (4,000 / 1,234,567) → vergulni olib tashlaymiz
     #     ("4,000" -> "4000" -> keyin "to'rt ming"). Faqat vergul + AYNAN 3 raqam guruhi
     #     (o'nlik kasr "3,5" tegilmaydi — undan keyin 3 raqam kelmaydi).
     text = re.sub(r"\d{1,3}(?:,\d{3})+", lambda m: m.group(0).replace(",", ""), text)
-    # 3c) Qisqartma birliklar SONdan keyin → to'liq so'z ("4000 km" → "... kilometr").
-    #     Faqat raqamdan keyin (tasodifiy "km"/"kg" so'zga tegmaydi). Ko'p harfli
-    #     bir xil birliklar (bir harfli m/g/t xavfli — tegilmaydi).
-    text = re.sub(r"(?<=\d)\s*(km/soat|km|kg|sm|mm|ml|kv\.m)\b",
-                  lambda m: " " + _UNITS[m.group(1)], text)
+    # 3c) Foiz: "50%" → "50 foiz" (son keyin so'zga aylanadi).
+    text = re.sub(r"(?<=\d)\s*%", " foiz", text)
+    # 3d) Belgilar: № → "raqam", & → "va".
+    for _sym, _w in _SYMBOLS.items():
+        text = text.replace(_sym, _w)
+    # 3e) Birliklar SONdan keyin → to'liq so'z. Ko'p harfli/belgili (uzun avval, registrsiz),
+    #     so'ng bir harfli (m/g/l/t) — FAQAT bo'shliq bilan (tasodifiy so'zga tegmasin).
+    _u_pat = "|".join(re.escape(k) for k in sorted(_UNITS, key=len, reverse=True))
+    text = re.sub(r"(?<=\d)\s*(" + _u_pat + r")\b",
+                  lambda m: " " + _UNITS[m.group(1).lower()], text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<=\d)\s+([mglt])\b",
+                  lambda m: " " + _UNITS1[m.group(1).lower()], text, flags=re.IGNORECASE)
+    # 3f) O'nlik kasr: "3,5" / "3.5" → "uch nuqta besh" (mingliklar/sana allaqachon yeyilgan).
+    text = re.sub(r"\b(\d+)[,.](\d+)\b", _decimal, text)
+    # 3g) Nuqtali qisqartmalar (ko'ch.→ko'chasi). Uzun avval; registrsiz.
+    for _ab in sorted(_ABBR_DOT, key=len, reverse=True):
+        text = re.sub(re.escape(_ab), _ABBR_DOT[_ab], text, flags=re.IGNORECASE)
     # 3d) Ma'lum qisqartmalar → talaffuz (IT→"ay-ti"). Faqat _ABBR ro'yxatidagilar,
     #     to'liq so'z sifatida (registrga sezgir — kichik "it" so'ziga tegmaydi).
     text = re.sub(r"\b(" + "|".join(_ABBR) + r")\b",
@@ -149,4 +214,6 @@ def normalize_uz_tts(text: str) -> str:
                   lambda m: _PRON[m.group(0).lower()], text, flags=re.IGNORECASE)
     # 4) Narx/son: bo'shliqli guruh (300 560) yoki oddiy son → so'z.
     text = re.sub(r"\d{1,3}(?:[  ]\d{3})+|\d+", _num, text)
+    # 5) Belgi almashtirishlardan qolgan ortiqcha bo'shliqni yig'amiz.
+    text = re.sub(r"  +", " ", text)
     return text
