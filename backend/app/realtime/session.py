@@ -194,6 +194,11 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     if avatar_id:
         try:
             from app.services import knowledge
+            # Meta-savol ("nimani bilasan / qanday yordam berasan") → KB katalogi.
+            if knowledge.is_capability_query(user_text):
+                _ov = knowledge.build_overview_block(knowledge.overview(avatar_id))
+                if _ov:
+                    system_prompt = system_prompt + "\n\n" + _ov
             _block = knowledge.build_context_block(knowledge.retrieve(avatar_id, user_text))
             if _block:
                 system_prompt = system_prompt + "\n\n" + _block

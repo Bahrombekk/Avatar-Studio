@@ -41,6 +41,11 @@ def _augment_prompt(system_prompt: str, avatar_id, user_message: str):
     if avatar_id:
         try:
             from app.services import knowledge
+            # Meta-savol ("nimani bilasan / qanday yordam berasan") → KB katalogi.
+            if knowledge.is_capability_query(user_message):
+                ov = knowledge.build_overview_block(knowledge.overview(avatar_id))
+                if ov:
+                    system_prompt = system_prompt + "\n\n" + ov
             block = knowledge.build_context_block(knowledge.retrieve(avatar_id, user_message))
             if block:
                 system_prompt = system_prompt + "\n\n" + block

@@ -241,6 +241,95 @@ def delete_faq(avatar_id: str, faq_id: str) -> bool:
     return True
 
 
+def get_source(avatar_id: str, src_id: str) -> dict | None:
+    """Manba metasi + XOM matni (ko'rish/tahrirlash uchun). Yo'q bo'lsa None.
+    Xom matn (sources/<id>.txt) yo'q bo'lsa — chunk'lardan taxminan tiklanadi
+    (overlap tufayli takror bo'lishi mumkin, lekin ko'rish uchun yetarli)."""
+    idx = _load(avatar_id)
+    meta = next((s for s in idx.get("sources", []) if s.get("id") == src_id), None)
+    if meta is None:
+        return None
+    text = ""
+    p = avatar_knowledge_sources_dir(avatar_id) / f"{src_id}.txt"
+    if p.exists():
+        try:
+            text = p.read_text(encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            text = ""
+    if not text:
+        text = "\n\n".join(
+            c.get("text", "") for c in idx.get("chunks", []) if c.get("src_id") == src_id
+        )
+    return {**meta, "text": text}
+
+
+def update_source(avatar_id: str, src_id: str, text: str, name: str | None = None) -> dict:
+    """Manba matnini yangilaydi — qayta chunk + embed (src_id o'zgarmaydi).
+    Manba topilmasa KeyError."""
+    pieces = chunk_text(text)
+    if not pieces:
+        raise ValueError("Hujjat bo'sh yoki o'qib bo'lmadi")
+    embs = _embed([norm_uz(p) for p in pieces])
+    if len(embs) != len(pieces):
+        raise RuntimeError("Embedding olinmadi (OpenAI kaliti/limit?)")
+    with _lock:
+        idx = _load(avatar_id)
+        meta = next((s for s in idx["sources"] if s.get("id") == src_id), None)
+        if meta is None:
+            raise KeyError(src_id)
+        idx["chunks"] = [c for c in idx["chunks"] if c.get("src_id") != src_id]
+        for piece, emb in zip(pieces, embs):
+            idx["chunks"].append({
+                "id": "c_" + uuid.uuid4().hex[:10], "src_id": src_id,
+                "kind": "doc", "text": piece, "emb": emb,
+            })
+        if name:
+            meta["name"] = name
+        meta["chars"] = len(text)
+        meta["n_chunks"] = len(pieces)
+        meta["added"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        _save(avatar_id, idx)
+        try:
+            sdir = avatar_knowledge_sources_dir(avatar_id)
+            sdir.mkdir(parents=True, exist_ok=True)
+            (sdir / f"{src_id}.txt").write_text(text, encoding="utf-8")
+        except Exception as e:  # noqa: BLE001
+            log.warning("[knowledge] xom matn saqlanmadi: %s", e)
+    return {"id": src_id, "n_chunks": len(pieces)}
+
+
+def update_faq(avatar_id: str, faq_id: str, question: str, answer: str) -> bool:
+    """FAQ savol/javobini yangilaydi + tegishli chunk'ni qayta embed qiladi.
+    FAQ topilmasa False."""
+    question = (question or "").strip()
+    answer = (answer or "").strip()
+    if not question or not answer:
+        raise ValueError("Savol va javob bo'sh bo'lmasligi kerak")
+    embed_text = f"Savol: {question}\nJavob: {answer}"
+    embs = _embed([norm_uz(embed_text)])
+    if not embs:
+        raise RuntimeError("Embedding olinmadi (OpenAI kaliti/limit?)")
+    with _lock:
+        idx = _load(avatar_id)
+        faq = next((f for f in idx["faqs"] if f.get("id") == faq_id), None)
+        if faq is None:
+            return False
+        faq["q"] = question
+        faq["a"] = answer
+        ch = next((c for c in idx["chunks"] if c.get("src_id") == faq_id), None)
+        if ch is not None:
+            ch["text"] = embed_text
+            ch["answer"] = answer
+            ch["emb"] = embs[0]
+        else:
+            idx["chunks"].append({
+                "id": "c_" + uuid.uuid4().hex[:10], "src_id": faq_id,
+                "kind": "faq", "text": embed_text, "answer": answer, "emb": embs[0],
+            })
+        _save(avatar_id, idx)
+    return True
+
+
 # ── Retrieval ──
 def _build_lex(chunks: list) -> dict:
     """BM25 uchun lexical struktura: har chunk token-chastotasi, uzunligi, df, avgdl."""
@@ -341,4 +430,70 @@ def build_context_block(hits: list) -> str:
     for h in hits:
         tag = "FAQ" if h.get("kind") == "faq" else "hujjat"
         lines.append(f"- [{tag}] {h['text']}")
+    return "\n".join(lines)
+
+
+# ── Meta / qobiliyat savollari ("nimani bilasan", "qanday yordam berasan") ──
+# Semantik retrieval bu savollarga ishlamaydi (savol so'zlari KB mazmuniga o'xshamaydi)
+# — o'rniga KB "katalogi" (mavzu nomlari + namuna FAQ) beriladi, GPT undan javob quradi.
+_CAP_PATTERNS = re.compile(
+    r"nima(lar)?ni?\s+bilas"                     # nimani/nimalarni/nima bilasan (bilan EMAS)
+    r"|qanday\s+yordam|qanaqa\s+yordam"          # qanday yordam bera olasan
+    r"|yordam\s+bera\s*ol"                        # ... yordam bera olasan(mi)
+    r"|nima(lar)?\s+(qila|qilib)\s*ol"           # nima qila olasan
+    r"|nima\s+ish\s+qil"                          # nima ish qilasan
+    r"|qanday\s+savol|qanaqa\s+savol"            # qanday savol berishim mumkin
+    r"|nima(lar)?ga\s+javob\s+ber"               # nimalarga javob berasan
+    r"|sen\s+kimsan|sen\s+kim\b|o'zing\s+kim|kimsan"
+    r"|vazifang|imkoniyating|imkoniyatlaring"
+    r"|nima(lar)?\s+haqida\s+(gaplash|so'zlash|ma'lumot|yordam|so'ra)"
+    r"|qaysi\s+mavzu|qanaqa\s+mavzu|qaysi\s+soha"
+    r"|what\s+(can|do)\s+you|how\s+can\s+you\s+help"
+    r"|что\s+ты\s+(зна|уме)|чем\s+.*помо",
+    re.IGNORECASE)
+
+
+def is_capability_query(text: str) -> bool:
+    """Foydalanuvchi umumiy 'nimani bilasan / qanday yordam bera olasan' deb so'radimi?"""
+    t = norm_uz(text or "").lower()
+    return bool(t and _CAP_PATTERNS.search(t))
+
+
+def overview(avatar_id: str, max_faqs: int = 18) -> dict:
+    """KB mavzular katalogi: manba nomlari (mavzular) + namuna FAQ savollari (teng
+    oraliqda — kenglik uchun). Embedding/API talab qilmaydi (faqat index o'qiydi)."""
+    idx = _load(avatar_id)
+    topics, seen = [], set()
+    for s in idx.get("sources", []):
+        name = re.sub(r"\.(txt|md|pdf|docx?)$", "", (s.get("name") or "").strip(),
+                      flags=re.IGNORECASE).strip()
+        # Sof fayl-nomga o'xshaganlarni (bo'shliqsiz, kichik harf) tashlab ketamiz.
+        if not name or name.lower() in seen:
+            continue
+        if " " not in name and name.islower() and len(name) <= 16:
+            continue
+        seen.add(name.lower())
+        topics.append(name)
+    qs = [(f.get("q") or "").strip() for f in idx.get("faqs", []) if (f.get("q") or "").strip()]
+    if len(qs) > max_faqs:
+        step = len(qs) / max_faqs
+        qs = [qs[int(i * step)] for i in range(max_faqs)]
+    return {"topics": topics, "faqs": qs,
+            "n_sources": len(idx.get("sources", [])), "n_faqs": len(idx.get("faqs", []))}
+
+
+def build_overview_block(ov: dict) -> str:
+    """Meta-savol uchun system-prompt qo'shimchasi (KB qamrovi). '' agar bo'sh."""
+    if not ov or (not ov.get("topics") and not ov.get("faqs")):
+        return ""
+    lines = ["BILIM BAZASI QAMROVI — foydalanuvchi sening NIMANI bilishing yoki QANDAY "
+             "yordam bera olishingni so'radi. Quyida bilim bazangdagi HAQIQIY mavzular. "
+             "Shulardan kelib chiqib TABIIY, QISQA javob ber: 4-7 ta asosiy yo'nalishni "
+             "suhbat ohangida sanab, yordam taklif qil. Ro'yxatni quruq o'qib berma va "
+             "o'zingdan mavzu to'qima — faqat shu ro'yxatga asoslan."]
+    if ov.get("topics"):
+        lines.append("Mavzular: " + "; ".join(ov["topics"]))
+    if ov.get("faqs"):
+        lines.append("Namuna savollar (shu turdagilarga javob bera olasan): "
+                     + " | ".join(ov["faqs"]))
     return "\n".join(lines)
