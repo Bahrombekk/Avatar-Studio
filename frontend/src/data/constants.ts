@@ -13,6 +13,7 @@ export const VOICES: Voice[] = [
   { id: "nigora", name: "Nigora", lang: "O‘zbek", langCode: "uz", gender: "Ayol", tag: "Yandex", provider: "yandex" },
   { id: "yulduz", name: "Yulduz", lang: "O‘zbek", langCode: "uz", gender: "Ayol", tag: "Yandex", provider: "yandex_v3" },
   { id: "gulnoza", name: "Gulnoza", lang: "O‘zbek", langCode: "uz", gender: "Ayol", tag: "Aisha", provider: "aisha" },
+  { id: "zamira", name: "Zamira", lang: "O‘zbek", langCode: "uz", gender: "Ayol", tag: "Yandex", provider: "yandex_v3" },
   // Rus
   { id: "ru_dmitry",   name: "Dmitriy",  lang: "Rus", langCode: "ru", gender: "Erkak", tag: "Edge", provider: "edge" },
   { id: "ru_svetlana", name: "Svetlana", lang: "Rus", langCode: "ru", gender: "Ayol", tag: "Edge", provider: "edge" },

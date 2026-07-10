@@ -30,6 +30,10 @@ VOICES = {
                # "friendly" = iliq, jonli ohang (jalb qiluvchi yordamchi uchun).
                # O'chirish/o'zgartirish: env YULDUZ_ROLE (bo'sh = role yubormaydi).
                "role": os.environ.get("YULDUZ_ROLE", "friendly").strip() or None},
+    "zamira": {"provider": "yandex_v3", "voice": "zamira", "lang": "uz-UZ",
+               "label": "Zamira (Yandex)", "speed": 1.0, "smooth_af": _YX_SMOOTH,
+               # Zamira rollari: neutral|friendly|strict (whisper YO'Q).
+               "role": os.environ.get("ZAMIRA_ROLE", "neutral").strip() or None},
     # Aisha (back.aisha.group) — mahalliy o'zbek ovozi. Mood: Neutral|Cheerful|Happy|Sad.
     "gulnoza": {"provider": "aisha", "voice": "Gulnoza", "lang": "uz-UZ",
                 "label": "Gulnoza (Aisha)", "speed": 1.0, "mood": "Neutral",
@@ -58,7 +62,7 @@ DEFAULT_VOICE = "madina"
 
 # Til → o'sha til uchun standart ovoz (avatar.langVoices bermasa fallback).
 _LANG_DEFAULT_VOICE = {"uz": "madina", "en": "en_ava", "ru": "ru_marina", "kk": "kk_aigul"}
-_UZ_VOICES = {"madina", "sardor", "nigora", "yulduz", "gulnoza"}
+_UZ_VOICES = {"madina", "sardor", "nigora", "yulduz", "zamira", "gulnoza"}
 
 
 def voice_for(avatar: dict, language: str = None) -> str:
@@ -89,6 +93,7 @@ def voice_for(avatar: dict, language: str = None) -> str:
 # Emotsiya (role) qo'llaydigan ovozlar. gulnoza (Aisha) rollari _AISHA_MOOD orqali
 # Aisha mood'iga o'giriladi (friendly→Cheerful, whisper→Sad, ...).
 ROLE_VOICES = {"yulduz": {"neutral", "strict", "friendly", "whisper"},
+               "zamira": {"neutral", "strict", "friendly"},   # whisper YO'Q
                "gulnoza": {"neutral", "strict", "friendly", "whisper"}}
 
 # O'zbekcha kalit-so'zlar (registrsiz, apostrof birxillashtirilgan holda qidiriladi).

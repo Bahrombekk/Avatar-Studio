@@ -281,6 +281,14 @@ const MOODS_BY_PROVIDER = {
     { v: "whisper", label: "Pichirlash" },
   ],
 };
+// Ba'zi ovozlar provayder standartidan boshqa rol to'plamiga ega (ovoz-darajali override).
+// Zamira (yandex_v3) whisper'ni QO'LLAMAYDI → uni ro'yxatdan chiqaramiz.
+const MOODS_BY_VOICE = {
+  zamira: [
+    { v: "", label: "Avto" }, { v: "neutral", label: "Neytral" },
+    { v: "friendly", label: "Do‘stona" }, { v: "strict", label: "Qat‘iy" },
+  ],
+};
 const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 function TabVoice({ draft, set }) {
@@ -317,7 +325,7 @@ function TabVoice({ draft, set }) {
   });
   const langVoiceList = VOICES.filter((v) => langMatch(v, draft.language));
   const curSpec = VOICES.find((v) => v.id === curVoice) || {};
-  const moods = MOODS_BY_PROVIDER[curSpec.provider] || null;   // null = uslub yo'q
+  const moods = MOODS_BY_VOICE[curVoice] || MOODS_BY_PROVIDER[curSpec.provider] || null;   // null = uslub yo'q
   const spd = Number(draft.voiceSpeed) || 1.0;
 
   return (
