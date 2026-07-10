@@ -11,6 +11,7 @@ import io
 import logging
 import queue
 import threading
+import time
 import wave
 
 import grpc
@@ -36,6 +37,7 @@ class StreamingSTT:
         self._finals = []
         self.partial = ""
         self._done = threading.Event()
+        self._final_evt = threading.Event()   # birinchi FINAL kelganда o'rnatiladi
         self._err = None
         self._language = language or "uz"
         self._pcm = bytearray()          # REST fallback uchun xom PCM zaxirasi
@@ -54,8 +56,15 @@ class StreamingSTT:
         self._q.put(_SENTINEL)
 
     def result(self, timeout: float = 10.0) -> str:
-        self._done.wait(timeout)
-        if self._err:
+        # YAKUNIY matn kelishi bilan qaytamiz — butun gRPC oqimi YOPILISHINI kutmaymiz.
+        # (Yopilish = final_refinement + stream close, ~10s cho'zilib STT kechikishini
+        # sun'iy oshirardi. Endi birinchi final'да qaytamiz + 0.3s grace: refinement
+        # tez kelsa, tozalangan matnни oladi.)
+        if self._final_evt.wait(timeout):
+            time.sleep(0.3)
+        else:
+            self._done.wait(0.5)          # final yo'q — xato/partial aniqlash uchun ozgina
+        if self._err and not self._finals:
             raise RuntimeError(self._err)
         text = (" ".join(self._finals).strip() or self.partial.strip())
         if text:
@@ -153,6 +162,7 @@ class StreamingSTT:
                     self.partial = resp.partial.alternatives[0].text
                 elif etype == "final" and resp.final.alternatives:
                     self._finals.append(resp.final.alternatives[0].text)
+                    self._final_evt.set()          # yakuniy matn tayyor → result() qaytadi
                 elif etype == "final_refinement":
                     alts = resp.final_refinement.normalized_text.alternatives
                     if alts:
@@ -161,6 +171,7 @@ class StreamingSTT:
                             self._finals[-1] = alts[0].text
                         else:
                             self._finals.append(alts[0].text)
+                        self._final_evt.set()
             chan.close()
         except Exception as e:  # noqa: BLE001
             self._err = f"Yandex streaming STT: {e}"
