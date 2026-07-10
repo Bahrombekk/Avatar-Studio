@@ -66,6 +66,10 @@ export function RealtimePage() {
   const startFrameRef = useRef<number>(0);
   const answerPlayStartRef = useRef<number>(0);   // javob o'ynashni boshlagan vaqt
   const fadeTimerRef = useRef<number>(0);
+  // Stall-watchdog: javob videosi muzlab qolsa (currentTime ilgarilamasa) tiklash.
+  const stallTimerRef = useRef<number>(0);
+  const lastVidRef = useRef<{ t: number; at: number }>({ t: 0, at: 0 });
+  const finishingRef = useRef(false);   // javob yakunlanmoqda (ikki marta bo'lmasin)
   const fps = Number(avatar?.fps) || 25;
   // Audio capture
   const ctxRef = useRef<AudioContext | null>(null);
@@ -137,6 +141,8 @@ export function RealtimePage() {
           streamAtRef.current = performance.now();
           answerPlayStartRef.current = 0;
           window.clearTimeout(fadeTimerRef.current);
+          stopStallWatch();
+          finishingRef.current = false;   // yangi javob — yakunlash bayrog'ini tiklaymiz
           setStatus("");
           setBusy(false);
           setAnswerFading(false);
@@ -209,6 +215,58 @@ export function RealtimePage() {
     else if (!next) stopCapture();
   }
 
+  // Javobni yakunlash — idle'ga KADR-SINXRON qaytish + fade + (avto) qayta tinglash.
+  // onEnded (tabiiy tugash), onError (video xatosi) VA stall-watchdog (muzlash) shu
+  // yerga keladi. finishingRef bilan bir javob uchun BIR MARTA bajariladi.
+  function finishAnswer() {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    stopStallWatch();
+    const idle = idleRef.current;
+    if (idle && idle.duration) {
+      const M = Math.max(1, Math.round(idle.duration * fps));
+      const elapsed = answerPlayStartRef.current
+        ? (performance.now() - answerPlayStartRef.current) / 1000 : 0;
+      const N = Math.round(elapsed * fps);
+      const resume = (((startFrameRef.current + N) % M) + M) % M;
+      try { idle.currentTime = resume / fps; idle.play().catch(() => {}); } catch { /* ignore */ }
+    }
+    answerPlayStartRef.current = 0;
+    setAnswerFading(true);
+    window.clearTimeout(fadeTimerRef.current);
+    fadeTimerRef.current = window.setTimeout(() => {
+      setAnswerFading(false);
+      setAnswerUrl(null);
+    }, 300);
+    autoRelisten(450);   // avto rejim: keyingi navbatni tinglash
+  }
+
+  function stopStallWatch() {
+    if (stallTimerRef.current) {
+      window.clearInterval(stallTimerRef.current);
+      stallTimerRef.current = 0;
+    }
+  }
+
+  // Javob o'ynay boshlaganda ishga tushadi: currentTime ~7s ilgarilamasa (server
+  // gap-fill paytida ham vaqt yuradi → "o'ylash" pauzasi tegmaydi; faqat HAQIQIY
+  // muzlash) videoni muzlagan deb tiklaymiz (aks holda foydalanuvchi gapirmaguncha
+  // qotib qolardi). Server-watchdog GPU slotni bo'shatadi; bu UI'ni tiklaydi.
+  function startStallWatch() {
+    stopStallWatch();
+    lastVidRef.current = { t: -1, at: performance.now() };
+    stallTimerRef.current = window.setInterval(() => {
+      const v = answerRef.current;
+      if (!v) { stopStallWatch(); return; }
+      const now = performance.now();
+      if (v.currentTime > lastVidRef.current.t + 0.05) {
+        lastVidRef.current = { t: v.currentTime, at: now };   // ilgarilayapti
+      } else if (now - lastVidRef.current.at > 7000) {
+        finishAnswer();   // 7s muzladi → tiklaymiz
+      }
+    }, 2000);
+  }
+
   async function startRecording() {
     setError("");
     const ws = wsRef.current;
@@ -221,6 +279,8 @@ export function RealtimePage() {
     // <video>'ni unmount qilish brauzerdagi oqim GET'ini ham bekor qiladi.
     if (answerUrl) {
       window.clearTimeout(fadeTimerRef.current);
+      stopStallWatch();
+      finishingRef.current = false;
       setAnswerFading(false);
       setAnswerUrl(null);
     }
@@ -481,30 +541,10 @@ export function RealtimePage() {
                     streamAtRef.current = 0;
                     setMetrics((m) => (m ? { ...m, video: Math.round(v * 100) / 100 } : m));
                   }
+                  startStallWatch();   // muzlashni kuzatishni boshlaymiz
                 }}
-                onEnded={() => {
-                  // Idle'ni javob tugagan kadrdan davom ettiramiz (kadr-sinxron handoff).
-                  // Javob davomiyligini HAQIQIY o'ynash vaqtidan olamiz — fragmented mp4'da
-                  // video.duration NaN/Infinity bo'lishi mumkin (metadata yo'q).
-                  const idle = idleRef.current;
-                  if (idle && idle.duration) {
-                    const M = Math.max(1, Math.round(idle.duration * fps));
-                    const elapsed = answerPlayStartRef.current
-                      ? (performance.now() - answerPlayStartRef.current) / 1000 : 0;
-                    const N = Math.round(elapsed * fps);
-                    const resume = (((startFrameRef.current + N) % M) + M) % M;
-                    try { idle.currentTime = resume / fps; idle.play().catch(() => {}); } catch { /* ignore */ }
-                  }
-                  answerPlayStartRef.current = 0;
-                  // Silliq crossfade: javobni so'ndirib idle'ni ochamiz (og'iz/kadr farqi yashirinadi).
-                  setAnswerFading(true);
-                  window.clearTimeout(fadeTimerRef.current);
-                  fadeTimerRef.current = window.setTimeout(() => {
-                    setAnswerUrl(null);
-                    setAnswerFading(false);
-                  }, 300);
-                  autoRelisten(450);   // avto rejim: keyingi navbatni tinglash
-                }} />
+                onEnded={() => finishAnswer()}
+                onError={() => finishAnswer()} />
             )}
             {(recording || busy) && (
               <div className={"rt-state " + (recording ? "listen" : "think")}>
