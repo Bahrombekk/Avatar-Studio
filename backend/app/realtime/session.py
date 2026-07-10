@@ -209,7 +209,13 @@ def reply_stream(user_text: str, avatar_id: str = None, voice: str = None,
     # real narx/jadval/turlarni olib system prompt'ga qo'shamiz.
     try:
         from app.services import railway
-        _rail = railway.railway_context(user_text, (avatar or {}).get("language", "uz"))
+        from app.services import gpt as _gpt
+        # Suhbat tarixi (ko'p-navbatli kontekst): "denov" desa oldingi yo'nalish/sana
+        # bilan to'ldirilsin. Joriy user_text hali tarixга qo'shilmagan (ask_gpt_stream
+        # keyin qo'shadi) → dublikat yo'q.
+        _rhist = list(_gpt._history_for(history_key))
+        _rail = railway.railway_context(user_text, (avatar or {}).get("language", "uz"),
+                                        history=_rhist)
         if _rail:
             system_prompt = system_prompt + "\n\n" + _rail
             # Jadval javobi uzunroq — token budjetini ko'taramiz (kesilmasin).

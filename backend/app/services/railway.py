@@ -285,9 +285,11 @@ def looks_like_train_query(text: str) -> bool:
     return bool(_ROUTE_RE.search(t))
 
 
-def _extract_params(user_text: str, language: str):
+def _extract_params(user_text: str, language: str, history=None):
     """GPT (function-calling) bilan (qayerdan/qayerga/sana) ni ajratadi.
-    Sana YYYY-MM-DD; nisbiy ("ertaga","bugun") bugungi sanaga nisbatan."""
+    Sana YYYY-MM-DD; nisbiy ("ertaga","bugun") bugungi sanaga nisbatan.
+    history — oxirgi suhbat navbatlari: KO'P-NAVBATLI kontekst uchun (foydalanuvchi
+    "denov" desa, oldingi navbatдаgi "Toshkentdan ... ertaga" bilan to'ldiriladi)."""
     from app.services.gpt import client
     today = datetime.date.today().isoformat()
     tools = [{
@@ -309,10 +311,22 @@ def _extract_params(user_text: str, language: str):
             },
         },
     }]
+    # Suhbat konteksti: oxirgi navbatlar + system ko'rsatma → GPT yo'nalish/sanani
+    # navbatlar orasidan yig'adi ("denov" → oldingi from-shahar/sana bilan).
+    msgs = [{"role": "system", "content":
+             "Foydalanuvchi poyezd/chipta so'ramoqda. Suhbat KONTEKSTIDAN foydalanib "
+             "qayerdan (from_city), qayerga (to_city) va sanani to'ldir — bular oldingi "
+             "navbatlarда aytilган bo'lishi mumkin (mas. oldin 'Toshkentdan ... ertaga' "
+             "deyilib, hozir faqat bekat nomi aytilса, from va sanani oldingidan ol)."}]
+    if history:
+        for m in history[-6:]:
+            if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip():
+                msgs.append({"role": m["role"], "content": m["content"][:500]})
+    msgs.append({"role": "user", "content": user_text})
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini", temperature=0,
-            messages=[{"role": "user", "content": user_text}],
+            messages=msgs,
             tools=tools, tool_choice="auto", max_tokens=120,
         )
         calls = resp.choices[0].message.tool_calls
@@ -366,13 +380,28 @@ def _format(params: dict, trains: list, dep_name: str, arv_name: str) -> str:
     return "\n".join(lines)
 
 
-def railway_context(user_text: str, language: str = "uz") -> str:
+# Suhbat poyezd/bekat haqida davom etayotganini ko'rsatuvchi belgilar (oxirgi
+# assistant xabarида) — shunда qisqa javob ("denov") ham yo'l-savol davomi sanaladi.
+_CTX_MARKERS = ("bekat", "poyezd", "poezd", "yo'nalish", "yonalish", "eticket",
+                "afrosiyob", "safar", "jo'na", "jona", "qaysi vaqt", "chipta", "bilet",
+                "jadval", "qaysi bekat")
+
+
+def railway_context(user_text: str, language: str = "uz", history=None) -> str:
     """Asosiy kirish: savol poyezd haqida bo'lsa, jonli ma'lumot blokini qaytaradi.
-    Aks holda/xatoda "" (suhbat avvalgidek davom etadi)."""
-    if not looks_like_train_query(user_text):
+    history — ko'p-navbatli kontekst (oldingi navbatда yo'nalish/sana aytilган bo'lsa,
+    hozir faqat bekat aytilса ham to'ldiriladi). Aks holda/xatoda ""."""
+    cur_hit = looks_like_train_query(user_text)
+    ctx_hit = False
+    if not cur_hit and history:
+        # Oxirgi assistant xabari poyezd/bekat haqida bo'lsa → hozirgi qisqa javob davomi.
+        last_asst = next((m.get("content", "") for m in reversed(history)
+                          if m.get("role") == "assistant"), "")
+        ctx_hit = any(k in (last_asst or "").lower() for k in _CTX_MARKERS)
+    if not (cur_hit or ctx_hit):
         return ""
     try:
-        params = _extract_params(user_text, language)
+        params = _extract_params(user_text, language, history=history)
         if not params:
             return ""
         # AQLLI ANIQLASHTIRISH: foydalanuvchi ko'p bekatli VILOYAT nomini aytган bo'lsa
