@@ -42,7 +42,7 @@ _ABBR = {"IT": "axborot texnologiyalari", "AI": "sun'iy intellekt",
 
 # Yandex o'zbek ovozi ba'zi so'zlarni buzib o'qiydi — TTS uchun to'g'ri talaffuzga
 # yoziladi (ekranda ASL so'z qoladi). Registrsiz, to'liq so'z sifatida.
-_PRON = {"virtual": "virtuual"}
+_PRON = {"virtual": "virtuual", "call": "kol", "center": "sentr"}
 _MONTHS = {1: "yanvar", 2: "fevral", 3: "mart", 4: "aprel", 5: "may", 6: "iyun",
            7: "iyul", 8: "avgust", 9: "sentyabr", 10: "oktyabr", 11: "noyabr", 12: "dekabr"}
 # Klass/poyezd kodidagi harf → o'qilishi (kiril va lotin).
@@ -250,6 +250,10 @@ def normalize_uz_tts(text: str) -> str:
     # 3e) So'z talaffuzini tuzatish (virtual→virtuual). Registrsiz, to'liq so'z.
     text = re.sub(r"\b(" + "|".join(_PRON) + r")\b",
                   lambda m: _PRON[m.group(0).lower()], text, flags=re.IGNORECASE)
+    # 3e2) So'z-so'z orasidagi tire → bo'shliq ("kol-markazi"→"kol markazi";
+    #      "ta'lim-tarbiya"→"ta'lim tarbiya"). Raqamli tirelar (oraliq/tartib/telefon)
+    #      allaqachon yeyilgan — bu faqat harf-harf tirega tegadi, TTS tabiiy o'qiydi.
+    text = re.sub(r"(?<=[a-zA-Zа-яёА-ЯЁ'])-(?=[a-zA-Zа-яёА-ЯЁ])", " ", text)
     # 3h) Raqamga yopishgan lotin harfini ajratamiz (5G, 3D, 1080p) — son so'zga
     #     aylanganda "beshG" bo'lib yopishib qolmasin (birliklar allaqachon yeyilgan).
     text = re.sub(r"(?<=\d)(?=[A-Za-z])", " ", text)
